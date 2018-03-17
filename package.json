@@ -1,0 +1,13 @@
+{
+  "name": "kos-scripts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Parker Bossier <parkerbossier@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "cpx scripts/*.* /Volumes/KSP-Ships-Scripts --watch | cpx scripts/boot/*.* /Volumes/KSP-Ships-Scripts/boot --watch"
+  },
+  "dependencies": {
+    "cpx": "^1.5.0"
+  }
+}
