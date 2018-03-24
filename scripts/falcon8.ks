@@ -5,13 +5,14 @@ LOCAL _returnGeoCoords IS _padGeoCoords.
 
 LOCAL _oldMaxStoppingTime IS 0.
 LOCK _steering TO HEADING(0, 90).
+LOCK STEERING TO _steering.
 
 LOCAL _firstStageRGU IS SHIP:PARTSTAGGED("firstStage")[0].
+LOCAL _firstStageSecondaryEngine IS SHIP:PARTSTAGGED("firstStageSecondaryEngine")[0].
 
-IF (TRUE) {
+IF (FALSE) {
 
 	PRINT "Preflight.".
-	LOCK STEERING TO _steering.
 	LOCK THROTTLE TO 1.
 	WAIT .5.
 
@@ -50,7 +51,7 @@ IF (TRUE) {
 
 }
 
-IF (TRUE) {
+IF (FALSE) {
 
 	// TODO: tell the upper stage to go
 
@@ -60,7 +61,7 @@ IF (TRUE) {
 	LOCK _steering TO HEADING(_returnGeoCoords:HEADING, 0).
 	RCS ON.
 	fn_setStoppingTime(6).
-	fn_waitForShipToFace({ RETURN _steering:VECTOR. }, 5).
+	fn_waitForShipToFace({ RETURN _steering:VECTOR. }, 4).
 	fn_resetStoppingTime().
 
 	PRINT "Ignition.".
@@ -82,30 +83,70 @@ IF (TRUE) {
 
 }
 
+IF (FALSE) {
 
-PRINT "Re-orient for re-entry.".
-LOCK _steering TO ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC.
-RCS ON.
-BRAKES ON.
-fn_setStoppingTime(6).
-fn_waitForShipToFace({ RETURN _steering. }, 5).
-fn_resetStoppingTime().
+	// TODO: remove
+	ADDONS:TR:SETTARGET(_returnGeoCoords).
+	WAIT 1.
 
-UNTIL (SHIP:ALTITUDE < 30000) {
-	WAIT .1.
+	PRINT "Re-orient for re-entry.".
+	LOCK _steering TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:FOREVECTOR).
+	RCS ON.
+	fn_setStoppingTime(6).
+	fn_waitForShipToFace({ RETURN _steering:FOREVECTOR. }, 6).
+	fn_resetStoppingTime().
+
+	PRINT "Deactivating econdary engine.".
+	_firstStageSecondaryEngine:SHUTDOWN().
+
+	WHEN (SHIP:ALTITUDE < 20000) THEN {
+		RCS OFF.
+		BRAKES ON.
+	}
 }
-RCS OFF.
 
-
-LOCAL FUNCTION fn_vectorDistance {
-	PARAMETER _v1.
-	PARAMETER _v2.
-
-	LOCAL _d IS SQRT((_v2:X - _v1:X)^2 + (_v2:Y - _v1:Y)^2 + (_v2:Z - _v1:Z)^2).
-	RETURN _d.
+UNTIL (fn_calculateDistanceToSuicideBurn() < 0) {
+	WAIT .01.
 }
 
+LOCAL _slowDescentSpeed IS -100.
+LOCK _verticalVelocity TO SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
+LOCK THROTTLE TO 1.
+WAIT .1.
+UNTIL (_verticalVelocity > _slowDescentSpeed) {
+	WAIT .01.
+}
 
+PRINT "Beginning slow descent.".
+LOCK _altitude TO SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT.
+LOCAL _throttlePid IS PIDLOOP(.01, 0.1, 0.1, -.05, .05).
+SET _throttlePid:SETPOINT TO -100.
+LOCAL _throttle IS .1.
+
+LOCK _steering TO SHIP:SRFRETROGRADE.
+LOCK THROTTLE TO _throttle.
+LOCAL _throttleDelta IS 0.
+
+UNTIL (SHIP:STATUS = "LANDED") {
+	if (_altitude < 800) {
+		SET _throttlePid:SETPOINT TO -6.
+		GEAR ON.
+	}
+
+	PRINT " ".
+	PRINT "input: " + _throttlePid:INPUT.
+	PRINT "set:   " + _throttlePid:SETPOINT.
+	PRINT "output:   " + _throttlePid:OUTPUT.
+	PRINT "max:   " + _throttlePid:MAXOUTPUT.
+
+	SET _throttle TO _throttle + _throttlePid:UPDATE(TIME:SECONDS, _verticalVelocity).
+	//PRINT "set _throttle to " + _throttle.
+	WAIT .01.
+}
+SET _throttle TO 0.
+
+
+WAIT 20.
 
 // Calculates the dV of the given stage.
 // If _detached is true, the dV will be calculated as if the stage were isolated.
@@ -143,6 +184,18 @@ LOCAL FUNCTION fn_calculateDv {
 	}
 }
 
+LOCAL FUNCTION fn_calculateDistanceToSuicideBurn {
+	// negative means down
+
+	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAt(SHIP:ALTITUDE).
+	// TODO: why 2?
+	LOCAL _verticalVelocity2 IS SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
+	LOCAL _stoppingTime IS (0 - _verticalVelocity2) / _verticalAcc.
+	LOCAL _burnHeight IS (-_verticalVelocity2 / 2) * _stoppingTime.
+
+	RETURN SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _burnHeight.
+}
+
 LOCAL FUNCTION fn_filter {
 	PARAMETER _list.
 	PARAMETER _lambda.
@@ -156,6 +209,15 @@ LOCAL FUNCTION fn_filter {
 	RETURN _filtered.
 }
 
+LOCAL FUNCTION fn_getGravityAt {
+	// TODO: why 2?
+	PARAMETER _altitude2.
+
+	LOCAL _gravity IS SHIP:BODY:MU / (_altitude2 + SHIP:BODY:RADIUS)^2.
+	RETURN _gravity.
+}
+
+
 LOCAL FUNCTION fn_map {
 	PARAMETER _list.
 	PARAMETER _lambda.
@@ -165,6 +227,25 @@ LOCAL FUNCTION fn_map {
 		_mapped:ADD(_labmda(_item)).
 	}
 	RETURN _mapped.
+}
+
+LOCAL FUNCTION fn_resetStoppingTime {
+	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _oldMaxStoppingTime.
+}
+
+LOCAL FUNCTION fn_setStoppingTime {
+	PARAMETER _value.
+
+	SET _oldMaxStoppingTime TO STEERINGMANAGER:MAXSTOPPINGTIME.
+	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
+}
+
+LOCAL FUNCTION fn_vectorDistance {
+	PARAMETER _v1.
+	PARAMETER _v2.
+
+	LOCAL _d IS SQRT((_v2:X - _v1:X)^2 + (_v2:Y - _v1:Y)^2 + (_v2:Z - _v1:Z)^2).
+	RETURN _d.
 }
 
 LOCAL FUNCTION fn_waitForShipToFace {
@@ -178,15 +259,4 @@ LOCAL FUNCTION fn_waitForShipToFace {
 		WAIT .05.
 	}
 	UNLOCK _error.
-}
-
-
-LOCAL FUNCTION fn_setStoppingTime {
-	PARAMETER _value.
-
-	SET _oldMaxStoppingTime TO STEERINGMANAGER:MAXSTOPPINGTIME.
-	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
-}
-LOCAL FUNCTION fn_resetStoppingTime {
-	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _oldMaxStoppingTime.
 }
