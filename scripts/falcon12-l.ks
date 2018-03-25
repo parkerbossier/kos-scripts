@@ -1,14 +1,17 @@
 @LAZYGLOBAL OFF.
 CLEARSCREEN.
 
-// Initial, MECO, BurnBack, Re-entry
+WAIT UNTIL FALSE.
+
+// Initial, MECO, BoostBurn, BurnBack, Re-entry
 LOCAL _missionPhase IS "Initial".
 
 // program-global definitions
-LOCAL _lowerStageRGU IS SHIP:PARTSTAGGED("firstStage")[0].
-LOCAL _lowerStageSecondaryEngine IS SHIP:PARTSTAGGED("firstStageSecondaryEngine")[0].
+LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
+LOCAL _lowerStageSecondaryEngines IS SHIP:PARTSTAGGED("lowerStageSecondaryEngine").
 LOCAL _oldMaxStoppingTime IS 0.
 LOCAL _padGeoCoords IS LATLNG(-.0972561023715436, -74.5576754947717).
+LOCAL _resumeControlAfterSeparation IS FALSE.
 LOCAL _returnGeoCoords IS _padGeoCoords.
 
 LOCAL _done IS FALSE.
@@ -37,8 +40,12 @@ UNTIL (_done) {
 		PRINT "Locking to prograde.".
 		LOCK STEERING TO SHIP:SRFPROGRADE.
 
+		SET _missionPhase TO "BoostBurn".
+	}
+
+	ELSE IF (_missionPhase = "BoostBurn") {
 		PRINT "Burning until point of no return.".
-		LOCAL LOCK _lowerStageDvDetached TO fn_calculateDv(4, true).
+		LOCAL LOCK _lowerStageDvDetached TO fn_calculateDv(2, true).
 		LOCAL LOCK _dvUntilMeco TO _lowerStageDvDetached - SHIP:VELOCITY:SURFACE:MAG*2 - 500.
 		WAIT UNTIL _dvUntilMeco <= 0.
 		UNLOCK _dvUntilMeco.
@@ -52,18 +59,24 @@ UNTIL (_done) {
 		LOCK THROTTLE TO 0.
 		WAIT 1.
 
-		PRINT "Stage separation".
-		STAGE.
-		WAIT 1.
-		KUNIVERSE:FORCEACTIVE(_lowerStageRGU:SHIP).
-		WAIT 1.
+		// we need to signal the upper stage so that it can control staging
+		// (because inter-vessel commsunication is broken)
+		PRINT "Transfering staging control to upper stage.".
+		LOCAL _upperStageCPU IS PROCESSOR("upperStageCPU").
+		_upperStageCPU:CONNECTION:SENDMESSAGE(TRUE).
+
+		// wait until we know staging is done
+		WAIT 2.
+
+		PRINT "Separation complete.".
+		IF (_resumeControlAfterSeparation) {
+			KUNIVERSE:FORCEACTIVE(_lowerStageCPUPart:SHIP).
+		}
 
 		SET _missionPhase TO "BurnBack".
 	}
 
 	ELSE IF (_missionPhase = "BurnBack") {
-		// TODO: tell the upper stage to go
-
 		PRINT "Re-orienting to engines first.".
 		LOCK STEERING TO HEADING(_returnGeoCoords:HEADING, 0).
 		RCS ON.
@@ -93,7 +106,7 @@ UNTIL (_done) {
 		WAIT 1.
 
 		PRINT "Deactivating secondary engine.".
-		_lowerStageSecondaryEngine:SHUTDOWN().
+		fn_forEach(_lowerStageSecondaryEngines, { PARAMETER _eng. _eng:SHUTDOWN(). }).
 
 		SET _missionPhase TO "Re-entry".
 	}
@@ -157,6 +170,8 @@ UNTIL (_done) {
 		}
 
 		PRINT "Touchdown. Stabilizing.".
+		SET THROTTLE TO 0.
+		WAIT .01.
 		UNLOCK THROTTLE.
 		LOCK STEERING TO SHIP:UP.
 		WAIT 1.
@@ -241,6 +256,15 @@ LOCAL FUNCTION fn_filter {
 		}
 	}
 	RETURN _filtered.
+}
+
+LOCAL FUNCTION fn_forEach {
+	PARAMETER _list.
+	PARAMETER _lambda.
+
+	FOR _item IN _list {
+		_lambda(_item).
+	}
 }
 
 LOCAL FUNCTION fn_getGravityAt {
