@@ -5,9 +5,11 @@
   "author": "Parker Bossier <parkerbossier@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "start": "cpx scripts/*.* /Volumes/KSP-Ships-Scripts --watch | cpx scripts/boot/*.* /Volumes/KSP-Ships-Scripts/boot --watch"
+    "copyToDest": "ncp scripts /Volumes/KSP-Ships-Scripts",
+    "start": "onchange 'scripts/**/*.ks' -i -- yarn copyToDest"
   },
   "dependencies": {
-    "cpx": "^1.5.0"
+    "ncp": "^2.0.0",
+    "onchange": "^3.3.0"
   }
 }
