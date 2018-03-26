@@ -1,17 +1,15 @@
 @LAZYGLOBAL OFF.
 CLEARSCREEN.
 
-WAIT UNTIL FALSE.
-
 // Initial, MECO, BoostBurn, BurnBack, Re-entry
-LOCAL _missionPhase IS "Initial".
+LOCAL _missionPhase IS "BurnBack".
 
 // program-global definitions
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
 LOCAL _lowerStageSecondaryEngines IS SHIP:PARTSTAGGED("lowerStageSecondaryEngine").
 LOCAL _oldMaxStoppingTime IS 0.
 LOCAL _padGeoCoords IS LATLNG(-.0972561023715436, -74.5576754947717).
-LOCAL _resumeControlAfterSeparation IS FALSE.
+LOCAL _resumeControlAfterSeparation IS TRUE.
 LOCAL _returnGeoCoords IS _padGeoCoords.
 
 LOCAL _done IS FALSE.
@@ -35,7 +33,7 @@ UNTIL (_done) {
 		PRINT "Begining gravity turn.".
 		LOCK STEERING TO HEADING(90, 90 - 10).
 		WAIT 3.
-		fn_waitForShipToFace({ RETURN SHIP:SRFPROGRADE:FOREVECTOR. }, .5).
+		fn_waitForShipToFace({ RETURN SHIP:SRFPROGRADE:VECTOR. }, .5).
 
 		PRINT "Locking to prograde.".
 		LOCK STEERING TO SHIP:SRFPROGRADE.
@@ -66,7 +64,7 @@ UNTIL (_done) {
 		_upperStageCPU:CONNECTION:SENDMESSAGE(TRUE).
 
 		// wait until we know staging is done
-		WAIT 2.
+		WAIT 1.
 
 		PRINT "Separation complete.".
 		IF (_resumeControlAfterSeparation) {
@@ -78,11 +76,15 @@ UNTIL (_done) {
 
 	ELSE IF (_missionPhase = "BurnBack") {
 		PRINT "Re-orienting to engines first.".
-		LOCK STEERING TO HEADING(_returnGeoCoords:HEADING, 0).
+
+		//LOCK STEERING TO SHIP:FACING.
+		//WAIT 10.
+
+		LOCAL _steering IS LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:FACING:TOPVECTOR).
+		LOCK STEERING TO _foo.
 		RCS ON.
-		fn_setStoppingTime(4).
-		fn_waitForShipToFace({ RETURN STEERING:VECTOR. }, 5).
-		fn_resetStoppingTime().
+
+		fn_flipTurnTo({ RETURN _steering. }).
 
 		PRINT "Ignition.".
 		LOCK THROTTLE TO 1.
@@ -105,7 +107,7 @@ UNTIL (_done) {
 		UNLOCK _distanceDelta.
 		WAIT 1.
 
-		PRINT "Deactivating secondary engine.".
+		PRINT "Deactivating secondary engines.".
 		fn_forEach(_lowerStageSecondaryEngines, { PARAMETER _eng. _eng:SHUTDOWN(). }).
 
 		SET _missionPhase TO "Re-entry".
@@ -116,17 +118,19 @@ UNTIL (_done) {
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
 
 		PRINT "Re-orient for re-entry.".
-		LOCK STEERING TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:FOREVECTOR).
+		LOCAL LOCK _steering TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:FOREVECTOR).
+		LOCK STEERING TO _steering.
 		RCS ON.
 		fn_setStoppingTime(4).
-		fn_waitForShipToFace({ RETURN STEERING:FOREVECTOR. }, 5).
+		fn_waitForShipToFace({ RETURN _steering:VECTOR. }, 5).
 		fn_resetStoppingTime().
+
+		PRINT "Deploying grid fins.".
+		BRAKES ON.
 
 		// async
 		WHEN (SHIP:ALTITUDE < 20000) THEN {
-			PRINT "Switching attitude control to grid fins.".
 			RCS OFF.
-			BRAKES ON.
 		}
 
 		PRINT "Waiting for estimated suicide burn.".
@@ -134,8 +138,8 @@ UNTIL (_done) {
 
 		PRINT "Beginning powered descent.".
 		LOCAL LOCK _altitude TO SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT.
+		LOCAL _prevAltitude IS _altitude.
 		LOCAL LOCK _distanceToBurn TO fn_calculateDistanceToSuicideBurn().
-		//LOCAL LOCK STEERING TO SHIP:SRFRETROGRADE.
 		LOCAL LOCK _verticalVelocity TO SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
 
 		LOCAL _throttlePid IS PIDLOOP(.01, 0.01, 0.01, -.05, .05).
@@ -148,6 +152,7 @@ UNTIL (_done) {
 		UNTIL (SHIP:STATUS = "LANDED") {
 			// slow the descent at 800m
 			if (_altitude < 800) {
+				LOCK STEERING TO SHIP:SRFRETROGRADE.
 				SET _throttlePid:SETPOINT TO -10.
 				SET _throttlePid:KP TO .2.
 				//SET _throttlePid:KI TO .1.
@@ -166,6 +171,7 @@ UNTIL (_done) {
 				BREAK.
 			}
 
+			SET _prevAltitude TO _altitude.
 			WAIT .01.
 		}
 
@@ -298,6 +304,52 @@ LOCAL FUNCTION fn_setStoppingTime {
 	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
 }
 
+//** Performs a flip turn to the desired direction (lastly including roll, but not waited for)
+LOCAL FUNCTION fn_flipTurnTo {
+	PARAMETER _directionFunc.
+	LOCAL LOCK _direction TO _directionFunc().
+
+	// orient such that up is facing the target direction
+	LOCAL _steering IS LOOKDIRUP(SHIP:FACING:VECTOR, _direction:VECTOR).
+	LOCK STEERING TO _steering.
+	WAIT .01.
+
+	// make sure we're sufficiently stable
+	LOCAL LOCK _done TO STEERINGMANAGER:ROLLERROR < 1 AND SHIP:ANGULARMOMENTUM:MAG < 4.
+	UNTIL _done {
+		PRINT STEERINGMANAGER:ROLLERROR + " + " + SHIP:ANGULARMOMENTUM:MAG.
+		WAIT .01.
+	}.
+	UNLOCK _done.
+
+	// final stability assurance
+	LOCK STEERING TO "KILL".
+	WAIT 1.
+	UNLOCK STEERING.
+
+	// begin flip
+	LOCAL _degreesToDirection IS VECTORANGLE(SHIP:FACING:VECTOR, _direction:VECTOR).
+	LOCAL _burnTime IS 2.
+	SET SHIP:CONTROL:PITCH TO 1.
+	WAIT _burnTime.
+	SET SHIP:CONTROL:PITCH TO 0.
+
+	// end flip
+	LOCAL _angularVelocityDeg IS SHIP:ANGULARVEL:MAG * 180 / CONSTANT:PI.
+	LOCAL _totalFlipTime IS (_degreesToDirection + _burnTime * _angularVelocityDeg) / _angularVelocityDeg.
+	WAIT _totalFlipTime - 2*_burnTime.
+	SET SHIP:CONTROL:PITCH TO -1.
+	WAIT _burnTime.
+	SET SHIP:CONTROL:PITCH TO 0.
+
+	LOCK STEERING TO _direction.
+
+PRINT "Locking".
+	fn_waitForShipToFace({ RETURN _direction:VECTOR. }, 2).
+
+	UNLOCK _directionFunc.
+}
+
 LOCAL FUNCTION fn_vectorDistance {
 	PARAMETER _v1.
 	PARAMETER _v2.
@@ -308,11 +360,10 @@ LOCAL FUNCTION fn_vectorDistance {
 
 //** Waits for the ship to face
 LOCAL FUNCTION fn_waitForShipToFace {
-	PARAMETER _toVectorFunc.
+	PARAMETER _vectorFunc.
 	PARAMETER _threshold.
 
-	LOCK _a TO _toVectorFunc().
-	LOCK _error TO VANG(SHIP:FACING:FOREVECTOR, _a).
+	LOCK _error TO VANG(SHIP:FACING:VECTOR, _vectorFunc()).
 	UNTIL (_error < _threshold) {
 		//PRINT "Error: " + _error.
 		WAIT .05.

@@ -15,7 +15,7 @@ UNTIL (_done) {
 
 		// separation/engine
 		STAGE.
-		WAIT 1.
+		WAIT 6.
 
 		SET _missionPhase TO "ToOrbit".
 	}
