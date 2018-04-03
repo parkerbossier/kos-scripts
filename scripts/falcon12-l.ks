@@ -3,17 +3,18 @@ CLEARSCREEN.
 
 RUNONCEPATH("functions").
 
-//WAIT UNTIL FALSE.
+WAIT UNTIL FALSE.
 
-// Initial, MECO, BoostBurn, BurnBack, Re-entry, PoweredDescent
-LOCAL _missionPhase IS "PoweredDescent".
+// Initial, BoostBurn, MECO, BurnBack, ReEntry, PoweredDescent
+LOCAL _missionPhase IS "Initial".
 
 // program-global definitions
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
 LOCAL _oldMaxStoppingTime IS 0.
 LOCAL _padGeoCoords IS LATLNG(-.067166787, -74.777452836).
-LOCAL _resumeControlAfterSeparation IS TRUE.
+LOCAL _resumeControlAfterSeparation IS FALSE.
 LOCAL _returnGeoCoords IS _padGeoCoords.
+LOCAL _separationStageNum IS 1.
 
 LOCAL _done IS FALSE.
 UNTIL (_done) {
@@ -38,16 +39,20 @@ UNTIL (_done) {
 		WAIT 3.
 		fn_waitForShipToFace({ RETURN SHIP:SRFPROGRADE:VECTOR. }, .5).
 
-		PRINT "Locking to prograde.".
-		LOCK STEERING TO SHIP:SRFPROGRADE.
-
 		SET _missionPhase TO "BoostBurn".
 	}
 
 	ELSE IF (_missionPhase = "BoostBurn") {
+		// the below contiguous lines are unnecessary if entering directly into this phase
+		LOCK THROTTLE TO 1.
+		WAIT .1.
+
+		PRINT "Locking to prograde.".
+		LOCK STEERING TO SHIP:SRFPROGRADE.
+
 		PRINT "Burning until point of no return.".
-		LOCAL LOCK _lowerStageDvDetached TO fn_calculateDv(2, true).
-		LOCAL LOCK _dvUntilMeco TO _lowerStageDvDetached - SHIP:VELOCITY:SURFACE:MAG*2 - 500.
+		LOCAL LOCK _lowerStageDvDetached TO fn_calculateDv(1, TRUE).
+		LOCAL LOCK _dvUntilMeco TO _lowerStageDvDetached - SHIP:VELOCITY:SURFACE:MAG*2.
 		WAIT UNTIL _dvUntilMeco <= 0.
 		UNLOCK _dvUntilMeco.
 		UNLOCK _lowerStageDvDetached.
@@ -94,7 +99,7 @@ UNTIL (_done) {
 
 		// blindly burn if we're not active because TR doesn't work on non-active vessels
 		IF (NOT _resumeControlAfterSeparation) {
-			PRINT "Can't predict atmospheric trajectory. Disabling logging.".
+			PRINT "Can't predict atmospheric trajectory. See ya!".
 			WAIT UNTIL FALSE.
 		}
 
@@ -110,15 +115,15 @@ UNTIL (_done) {
 		}
 
 		LOCK THROTTLE TO 0.
-		PRINT "Burn complete. Error: " + _distanceDelta + "m.".
+		PRINT "Burn complete. Error: " + ROUND(_distanceDelta) + "m.".
 		UNLOCK _distance.
 		UNLOCK _distanceDelta.
 		WAIT 1.
 
-		SET _missionPhase TO "Re-entry".
+		SET _missionPhase TO "ReEntry".
 	}
 
-	ELSE IF (_missionPhase = "Re-entry") {
+	ELSE IF (_missionPhase = "ReEntry") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
 		fn_setStoppingTime(3).
@@ -127,7 +132,7 @@ UNTIL (_done) {
 		// flipping a full 180 is too finicky
 		fn_flipTurnTo(
 			LOOKDIRUP(
-				VXCL(SHIP:UP:VECTOR, SHIP:RETROGRADE:VECTOR) + SHIP:UP:VECTOR,
+				VXCL(SHIP:UP:VECTOR, SHIP:RETROGRADE:VECTOR):NORMALIZED + SHIP:UP:VECTOR:NORMALIZED/2,
 				SHIP:UP:VECTOR
 			),
 			true
@@ -151,7 +156,7 @@ UNTIL (_done) {
 
 	ELSE IF (_missionPhase = "PoweredDescent") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
-		LOCK _reentrySteering TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:VECTOR).
+		LOCK _reentrySteering TO LOOKDIRUP(ADDONS:TR:CORRECTEDVEC, SHIP:UP:VECTOR).
 		LOCK STEERING TO _reentrySteering.
 		WHEN (SHIP:ALTITUDE < 20000) THEN {
 			RCS OFF.
@@ -199,7 +204,7 @@ UNTIL (_done) {
 
 		PRINT "Touchdown. Stabilizing.".
 		LOCK THROTTLE TO 0.
-		LOCK STEERING TO SHIP:UP.
+		LOCK STEERING TO SHIP:FACING.
 		WAIT 1.
 
 		PRINT "The Falcon has landed.".
@@ -249,7 +254,8 @@ LOCAL FUNCTION fn_calculateDv {
 	LOCAL _stageMass IS 0.
 	FOR _part IN _parts {
 		SET _stageDryMass TO _stageDryMass + _part:DRYMASS.
-		IF _part:HASSUFFIX("ISP") {
+		// check ISP > 0 because the poodles is included for some reason?
+		IF (_part:HASSUFFIX("ISP") AND _part:ISP > 0) {
 			SET _stageIspNumerator TO _stageIspNumerator + _part:AVAILABLETHRUST.
 			SET _stageIspDenominator TO _stageIspDenominator + (_part:AVAILABLETHRUST / _part:ISP).
 		}
@@ -258,7 +264,14 @@ LOCAL FUNCTION fn_calculateDv {
 	// https://forum.kerbalspaceprogram.com/index.php?/topic/156258-burn-time-calculator/
 	LOCAL _stageIsp IS _stageIspNumerator / _stageIspDenominator.
 
-	PRINT "isp: " + _stageIsp.
+	IF (FALSE) {
+		PRINT " ".
+		PRINT _stageDryMass.
+		PRINT _stageIsp.
+		PRINT _stageMass.
+		PRINT _stage.
+		PRINT _parts.
+	}
 
 	// prevent NaN errors
 	IF (_stageDryMass * _stageIsp * _stageMass = 0) {
@@ -276,30 +289,14 @@ LOCAL FUNCTION fn_calculateDv {
 LOCAL FUNCTION fn_calculateDistanceToSuicideBurn {
 	// negative means down
 	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAtAlt(SHIP:ALTITUDE).
-	// TODO: why 2?
 	LOCAL _v IS SHIP:VELOCITY:SURFACE:MAG.
 	LOCAL _stoppingTime IS _v / _verticalAcc.
 	LOCAL _stoppingDistance IS _v * _stoppingTime - (1/2 * _verticalAcc * _stoppingTime^2).
-	//LOCAL _burnHeight IS (-_v / 2) * _stoppingTime.
 
 	LOCAL _distanceToBurn IS SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _stoppingDistance.
-
-	PRINT " ".
-	PRINT "Stopping time: " + _stoppingTime.
-	PRINT "v:             " + _v.
-	PRINT "Stopping dist: " + _stoppingDistance.
-	PRINT "Distance:      " + _distanceToBurn.
-
 	RETURN _distanceToBurn.
 }
 
 LOCAL FUNCTION fn_resetStoppingTime {
 	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _oldMaxStoppingTime.
-}
-
-LOCAL FUNCTION fn_setStoppingTime {
-	PARAMETER _value.
-
-	SET _oldMaxStoppingTime TO STEERINGMANAGER:MAXSTOPPINGTIME.
-	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
 }

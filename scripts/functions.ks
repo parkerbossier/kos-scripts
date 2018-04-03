@@ -130,6 +130,13 @@ GLOBAL FUNCTION fn_map {
 	RETURN _mapped.
 }
 
+GLOBAL FUNCTION fn_setStoppingTime {
+	PARAMETER _value.
+
+	//SET _oldMaxStoppingTime TO STEERINGMANAGER:MAXSTOPPINGTIME.
+	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
+}
+
 //** Waits for the ship to face the given vector (to within the given threshold)
 GLOBAL FUNCTION fn_waitForShipToFace {
 	PARAMETER _vectorFunc.

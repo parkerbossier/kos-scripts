@@ -6,7 +6,7 @@ CLEARSCREEN.
 RUNONCEPATH("functions").
 
 // Initial, SlowStart, ToApo, Circularize, Deorbit
-LOCAL _missionPhase IS "SlowStart".
+LOCAL _missionPhase IS "Initial".
 
 // program-global definitions
 LOCAL _targetAltitude IS 100000.
@@ -22,7 +22,7 @@ UNTIL (_done) {
 		STAGE.
 
 		// keep our distance
-		WAIT 2.
+		WAIT 6.
 
 		SET _missionPhase TO "SlowStart".
 	}
@@ -40,10 +40,10 @@ UNTIL (_done) {
 		// redundant if starting with "Initial"
 		LOCK STEERING TO SHIP:PROGRADE.
 
-		// we'll hit vacuum before we finish burning, so async
-		WHEN (SHIP:ALTITUDE > SHIP:BODY:ATM:HEIGHT) THEN {
+		// we'll hit "vacuum" before we finish burning, so async
+		WHEN (SHIP:ALTITUDE > 60000) THEN {
 			PRINT "Jettisoning fairing.".
-			STAGE.
+			SHIP:MODULESNAMED("ModuleProceduralFairing")[0]:DOEVENT("DEPLOY").
 		}
 
 		PRINT "Burning until target apoapsis.".
@@ -69,6 +69,7 @@ UNTIL (_done) {
 		ADD _node.
 		WAIT .01.
 
+		fn_setStoppingTime(4).
 		fn_executeNextNode().
 
 		PRINT "Target orbit achieved.".
@@ -76,6 +77,7 @@ UNTIL (_done) {
 
 		PRINT "Detaching payload".
 		STAGE.
+		WAIT 6.
 
 		SET _missionPhase TO "Deorbit".
 	}
@@ -83,8 +85,14 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "Deorbit") {
 		PRINT "Re-orienting for deorbit burn.".
 		LOCAL _steering IS SHIP:RETROGRADE:VECTOR.
+		fn_setStoppingTime(2).
 		LOCK STEERING TO _steering.
-		fn_waitForShipToFace({ RETURN _steering. }, 5).
+		RCS ON.
+		fn_waitForShipToFace({ RETURN _steering. }, 10).
+
+		PRINT "Beginning low thrust separation increase.".
+		LOCK THROTTLE TO .1.
+		WAIT 2.
 
 		PRINT "Throttle up.".
 		LOCK THROTTLE TO 1.
