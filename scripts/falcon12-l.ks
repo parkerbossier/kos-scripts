@@ -3,7 +3,7 @@ CLEARSCREEN.
 
 RUNONCEPATH("functions").
 
-WAIT UNTIL FALSE.
+//WAIT UNTIL FALSE.
 
 // Initial, BoostBurn, MECO, BurnBack, ReEntry, PoweredDescent
 LOCAL _missionPhase IS "Initial".
@@ -12,7 +12,7 @@ LOCAL _missionPhase IS "Initial".
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
 LOCAL _oldMaxStoppingTime IS 0.
 LOCAL _padGeoCoords IS LATLNG(-.067166787, -74.777452836).
-LOCAL _resumeControlAfterSeparation IS FALSE.
+LOCAL _resumeControlAfterSeparation IS TRUE.
 LOCAL _returnGeoCoords IS _padGeoCoords.
 LOCAL _separationStageNum IS 1.
 
@@ -126,7 +126,7 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "ReEntry") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
-		fn_setStoppingTime(3).
+		fn_setStoppingTime(1).
 
 		PRINT "Re-orient for re-entry.".
 		// flipping a full 180 is too finicky

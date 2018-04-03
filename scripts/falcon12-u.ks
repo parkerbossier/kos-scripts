@@ -40,9 +40,13 @@ UNTIL (_done) {
 		// redundant if starting with "Initial"
 		LOCK STEERING TO SHIP:PROGRADE.
 
-		// we'll hit "vacuum" before we finish burning, so async
+		// we'll hit "vacuum" before we finish burning, so WHEN
 		WHEN (SHIP:ALTITUDE > 60000) THEN {
 			PRINT "Jettisoning fairing.".
+
+			// deploy the fairing sans staging so that it still works
+			// when the lower stage is active
+			// (this can occur for some lgiht profiles)
 			SHIP:MODULESNAMED("ModuleProceduralFairing")[0]:DOEVENT("DEPLOY").
 		}
 
