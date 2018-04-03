@@ -1,14 +1,17 @@
 @LAZYGLOBAL OFF.
 CLEARSCREEN.
 
-// Initial, MECO, BoostBurn, BurnBack, Re-entry
-LOCAL _missionPhase IS "BurnBack".
+RUNONCEPATH("functions").
+
+//WAIT UNTIL FALSE.
+
+// Initial, MECO, BoostBurn, BurnBack, Re-entry, PoweredDescent
+LOCAL _missionPhase IS "PoweredDescent".
 
 // program-global definitions
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
-LOCAL _lowerStageSecondaryEngines IS SHIP:PARTSTAGGED("lowerStageSecondaryEngine").
 LOCAL _oldMaxStoppingTime IS 0.
-LOCAL _padGeoCoords IS LATLNG(-.0972561023715436, -74.5576754947717).
+LOCAL _padGeoCoords IS LATLNG(-.067166787, -74.777452836).
 LOCAL _resumeControlAfterSeparation IS TRUE.
 LOCAL _returnGeoCoords IS _padGeoCoords.
 
@@ -71,24 +74,29 @@ UNTIL (_done) {
 			KUNIVERSE:FORCEACTIVE(_lowerStageCPUPart:SHIP).
 		}
 
+		//PRINT "Quicksaving.".
+		//WAIT .5.
+		//KUNIVERSE:QUICKSAVETO("mission").
+		//WAIT .5.
+
 		SET _missionPhase TO "BurnBack".
 	}
 
 	ELSE IF (_missionPhase = "BurnBack") {
+		fn_setStoppingTime(3).
 		PRINT "Re-orienting to engines first.".
-
-		//LOCK STEERING TO SHIP:FACING.
-		//WAIT 10.
-
-		LOCAL _steering IS LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:FACING:TOPVECTOR).
-		LOCK STEERING TO _foo.
-		RCS ON.
-
-		fn_flipTurnTo({ RETURN _steering. }).
+		LOCAL LOCK _burnBackDirection TO LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:UP:VECTOR).
+		fn_flipTurnTo(_burnBackDirection, false).
+		LOCK STEERING TO _burnBackDirection.
 
 		PRINT "Ignition.".
 		LOCK THROTTLE TO 1.
-		RCS OFF.
+
+		// blindly burn if we're not active because TR doesn't work on non-active vessels
+		IF (NOT _resumeControlAfterSeparation) {
+			PRINT "Can't predict atmospheric trajectory. Disabling logging.".
+			WAIT UNTIL FALSE.
+		}
 
 		PRINT "Burning until target intercept.".
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
@@ -101,14 +109,11 @@ UNTIL (_done) {
 			WAIT .1.
 		}
 
-		PRINT "Burn complete. Error: " + _distanceDelta + ".".
 		LOCK THROTTLE TO 0.
+		PRINT "Burn complete. Error: " + _distanceDelta + "m.".
 		UNLOCK _distance.
 		UNLOCK _distanceDelta.
 		WAIT 1.
-
-		PRINT "Deactivating secondary engines.".
-		fn_forEach(_lowerStageSecondaryEngines, { PARAMETER _eng. _eng:SHUTDOWN(). }).
 
 		SET _missionPhase TO "Re-entry".
 	}
@@ -116,14 +121,22 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "Re-entry") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
+		fn_setStoppingTime(3).
 
 		PRINT "Re-orient for re-entry.".
-		LOCAL LOCK _steering TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:FOREVECTOR).
-		LOCK STEERING TO _steering.
+		// flipping a full 180 is too finicky
+		fn_flipTurnTo(
+			LOOKDIRUP(
+				VXCL(SHIP:UP:VECTOR, SHIP:RETROGRADE:VECTOR) + SHIP:UP:VECTOR,
+				SHIP:UP:VECTOR
+			),
+			true
+		).
+
 		RCS ON.
-		fn_setStoppingTime(4).
-		fn_waitForShipToFace({ RETURN _steering:VECTOR. }, 5).
-		fn_resetStoppingTime().
+		LOCK _reentrySteering TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:VECTOR).
+		LOCK STEERING TO _reentrySteering.
+		fn_waitForShipToFace({ RETURN _reentrySteering:VECTOR. }, 15).
 
 		PRINT "Deploying grid fins.".
 		BRAKES ON.
@@ -133,32 +146,42 @@ UNTIL (_done) {
 			RCS OFF.
 		}
 
+		SET _missionPhase TO "PoweredDescent".
+	}
+
+	ELSE IF (_missionPhase = "PoweredDescent") {
+		// the below contiguous lines are unnecessary if entering directly into this phase
+		LOCK _reentrySteering TO LOOKDIRUP(ADDONS:TR:PLANNEDVECTOR + ADDONS:TR:CORRECTEDVEC, SHIP:UP:VECTOR).
+		LOCK STEERING TO _reentrySteering.
+		WHEN (SHIP:ALTITUDE < 20000) THEN {
+			RCS OFF.
+		}
+
 		PRINT "Waiting for estimated suicide burn.".
-		Wait UNTIL fn_calculateDistanceToSuicideBurn() < 0.
+		WAIT UNTIL fn_calculateDistanceToSuicideBurn() < 0.
 
 		PRINT "Beginning powered descent.".
 		LOCAL LOCK _altitude TO SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT.
-		LOCAL _prevAltitude IS _altitude.
 		LOCAL LOCK _distanceToBurn TO fn_calculateDistanceToSuicideBurn().
 		LOCAL LOCK _verticalVelocity TO SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
 
-		LOCAL _throttlePid IS PIDLOOP(.01, 0.01, 0.01, -.05, .05).
-		SET _throttlePid:SETPOINT TO 0.
+		LOCAL _throttlePid IS PIDLOOP(.7, .1, .4, -.05, .05).
+		SET _throttlePid:SETPOINT TO 100.
 
-		LOCAL _throttle IS .1.
+		LOCAL _throttle IS 1.
 		LOCK THROTTLE TO _throttle.
 		LOCAL _throttleDelta IS 0.
 
-		UNTIL (SHIP:STATUS = "LANDED") {
-			// slow the descent at 800m
-			if (_altitude < 800) {
-				LOCK STEERING TO SHIP:SRFRETROGRADE.
-				SET _throttlePid:SETPOINT TO -10.
-				SET _throttlePid:KP TO .2.
-				//SET _throttlePid:KI TO .1.
+		LOCK STEERING TO SHIP:SRFRETROGRADE.
+		WHEN (_altitude < 200) THEN {
+			SET _throttlePid:SETPOINT TO -15.
 				SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _verticalVelocity).
 				GEAR ON.
 				RCS ON.
+		}
+		UNTIL (SHIP:STATUS = "LANDED") {
+			if (_altitude < 200) {
+				SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _verticalVelocity).
 			}
 			ELSE {
 				SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _distanceToBurn).
@@ -171,14 +194,11 @@ UNTIL (_done) {
 				BREAK.
 			}
 
-			SET _prevAltitude TO _altitude.
 			WAIT .01.
 		}
 
 		PRINT "Touchdown. Stabilizing.".
-		SET THROTTLE TO 0.
-		WAIT .01.
-		UNLOCK THROTTLE.
+		LOCK THROTTLE TO 0.
 		LOCK STEERING TO SHIP:UP.
 		WAIT 1.
 
@@ -186,6 +206,13 @@ UNTIL (_done) {
 		UNLOCK STEERING.
 		RCS OFF.
 		BRAKES OFF.
+
+		PRINT "Shutting down engines.".
+		LOCAL _engines IS LIST().
+		LIST ENGINES IN _engines.
+		FOR _e IN _engines {
+			_e:SHUTDOWN.
+		}
 
 		SET _done TO TRUE.
 
@@ -217,15 +244,21 @@ LOCAL FUNCTION fn_calculateDv {
 	).
 
 	LOCAL _stageDryMass IS 0.
-	LOCAL _stageIsp IS 0.
+	LOCAL _stageIspNumerator IS 0.
+	LOCAL _stageIspDenominator IS 0.
 	LOCAL _stageMass IS 0.
 	FOR _part IN _parts {
 		SET _stageDryMass TO _stageDryMass + _part:DRYMASS.
 		IF _part:HASSUFFIX("ISP") {
-			SET _stageIsp TO MAX(_stageIsp, _part:ISP).
+			SET _stageIspNumerator TO _stageIspNumerator + _part:AVAILABLETHRUST.
+			SET _stageIspDenominator TO _stageIspDenominator + (_part:AVAILABLETHRUST / _part:ISP).
 		}
 		SET _stageMass TO _stageMass + _part:MASS.
 	}
+	// https://forum.kerbalspaceprogram.com/index.php?/topic/156258-burn-time-calculator/
+	LOCAL _stageIsp IS _stageIspNumerator / _stageIspDenominator.
+
+	PRINT "isp: " + _stageIsp.
 
 	// prevent NaN errors
 	IF (_stageDryMass * _stageIsp * _stageMass = 0) {
@@ -242,55 +275,22 @@ LOCAL FUNCTION fn_calculateDv {
 
 LOCAL FUNCTION fn_calculateDistanceToSuicideBurn {
 	// negative means down
-	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAt(SHIP:ALTITUDE).
+	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAtAlt(SHIP:ALTITUDE).
 	// TODO: why 2?
-	LOCAL _verticalVelocity2 IS SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
-	LOCAL _stoppingTime IS (0 - _verticalVelocity2) / _verticalAcc.
-	LOCAL _burnHeight IS (-_verticalVelocity2 / 2) * _stoppingTime.
+	LOCAL _v IS SHIP:VELOCITY:SURFACE:MAG.
+	LOCAL _stoppingTime IS _v / _verticalAcc.
+	LOCAL _stoppingDistance IS _v * _stoppingTime - (1/2 * _verticalAcc * _stoppingTime^2).
+	//LOCAL _burnHeight IS (-_v / 2) * _stoppingTime.
 
-	RETURN SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _burnHeight.
-}
+	LOCAL _distanceToBurn IS SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _stoppingDistance.
 
-LOCAL FUNCTION fn_filter {
-	PARAMETER _list.
-	PARAMETER _lambda.
+	PRINT " ".
+	PRINT "Stopping time: " + _stoppingTime.
+	PRINT "v:             " + _v.
+	PRINT "Stopping dist: " + _stoppingDistance.
+	PRINT "Distance:      " + _distanceToBurn.
 
-	LOCAL _filtered IS LIST().
-	FOR _item IN _list {
-		IF _lambda(_item) {
-			_filtered:ADD(_item).
-		}
-	}
-	RETURN _filtered.
-}
-
-LOCAL FUNCTION fn_forEach {
-	PARAMETER _list.
-	PARAMETER _lambda.
-
-	FOR _item IN _list {
-		_lambda(_item).
-	}
-}
-
-LOCAL FUNCTION fn_getGravityAt {
-	// TODO: why 2?
-	PARAMETER _altitude2.
-
-	LOCAL _gravity IS SHIP:BODY:MU / (_altitude2 + SHIP:BODY:RADIUS)^2.
-	RETURN _gravity.
-}
-
-
-LOCAL FUNCTION fn_map {
-	PARAMETER _list.
-	PARAMETER _lambda.
-
-	LOCAL _mapped IS LIST().
-	FOR _item IN _list {
-		_mapped:ADD(_labmda(_item)).
-	}
-	RETURN _mapped.
+	RETURN _distanceToBurn.
 }
 
 LOCAL FUNCTION fn_resetStoppingTime {
@@ -302,71 +302,4 @@ LOCAL FUNCTION fn_setStoppingTime {
 
 	SET _oldMaxStoppingTime TO STEERINGMANAGER:MAXSTOPPINGTIME.
 	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
-}
-
-//** Performs a flip turn to the desired direction (lastly including roll, but not waited for)
-LOCAL FUNCTION fn_flipTurnTo {
-	PARAMETER _directionFunc.
-	LOCAL LOCK _direction TO _directionFunc().
-
-	// orient such that up is facing the target direction
-	LOCAL _steering IS LOOKDIRUP(SHIP:FACING:VECTOR, _direction:VECTOR).
-	LOCK STEERING TO _steering.
-	WAIT .01.
-
-	// make sure we're sufficiently stable
-	LOCAL LOCK _done TO STEERINGMANAGER:ROLLERROR < 1 AND SHIP:ANGULARMOMENTUM:MAG < 4.
-	UNTIL _done {
-		PRINT STEERINGMANAGER:ROLLERROR + " + " + SHIP:ANGULARMOMENTUM:MAG.
-		WAIT .01.
-	}.
-	UNLOCK _done.
-
-	// final stability assurance
-	LOCK STEERING TO "KILL".
-	WAIT 1.
-	UNLOCK STEERING.
-
-	// begin flip
-	LOCAL _degreesToDirection IS VECTORANGLE(SHIP:FACING:VECTOR, _direction:VECTOR).
-	LOCAL _burnTime IS 2.
-	SET SHIP:CONTROL:PITCH TO 1.
-	WAIT _burnTime.
-	SET SHIP:CONTROL:PITCH TO 0.
-
-	// end flip
-	LOCAL _angularVelocityDeg IS SHIP:ANGULARVEL:MAG * 180 / CONSTANT:PI.
-	LOCAL _totalFlipTime IS (_degreesToDirection + _burnTime * _angularVelocityDeg) / _angularVelocityDeg.
-	WAIT _totalFlipTime - 2*_burnTime.
-	SET SHIP:CONTROL:PITCH TO -1.
-	WAIT _burnTime.
-	SET SHIP:CONTROL:PITCH TO 0.
-
-	LOCK STEERING TO _direction.
-
-PRINT "Locking".
-	fn_waitForShipToFace({ RETURN _direction:VECTOR. }, 2).
-
-	UNLOCK _directionFunc.
-}
-
-LOCAL FUNCTION fn_vectorDistance {
-	PARAMETER _v1.
-	PARAMETER _v2.
-
-	LOCAL _d IS SQRT((_v2:X - _v1:X)^2 + (_v2:Y - _v1:Y)^2 + (_v2:Z - _v1:Z)^2).
-	RETURN _d.
-}
-
-//** Waits for the ship to face
-LOCAL FUNCTION fn_waitForShipToFace {
-	PARAMETER _vectorFunc.
-	PARAMETER _threshold.
-
-	LOCK _error TO VANG(SHIP:FACING:VECTOR, _vectorFunc()).
-	UNTIL (_error < _threshold) {
-		//PRINT "Error: " + _error.
-		WAIT .05.
-	}
-	UNLOCK _error.
 }

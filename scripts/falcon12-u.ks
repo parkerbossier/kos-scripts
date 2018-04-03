@@ -1,66 +1,97 @@
 @LAZYGLOBAL OFF.
 CLEARSCREEN.
 
-// Initial, ToOrbit
-LOCAL _missionPhase IS "Initial".
+// TODO: move RCS down
+
+RUNONCEPATH("functions").
+
+// Initial, SlowStart, ToApo, Circularize, Deorbit
+LOCAL _missionPhase IS "SlowStart".
 
 // program-global definitions
-LOCAL _desiredAltitude IS 100000.
+LOCAL _targetAltitude IS 100000.
 
 LOCAL _done IS FALSE.
 UNTIL (_done) {
 	IF (_missionPhase = "Initial") {
 		PRINT "Waiting for signal from lower stage.".
 		WAIT UNTIL NOT CORE:MESSAGES:EMPTY.
+		CORE:MESSAGES:POP().
 
-		// separation/engine
+		PRINT "Stage separation and engine activation.".
 		STAGE.
-		WAIT 6.
 
-		SET _missionPhase TO "ToOrbit".
+		// keep our distance
+		WAIT 2.
+
+		SET _missionPhase TO "SlowStart".
 	}
 
-	ELSE IF (_missionPhase = "ToOrbit") {
+	ELSE IF (_missionPhase = "SlowStart") {
+		PRINT "Beginning low thrust separation increase.".
 		LOCK STEERING TO SHIP:PROGRADE.
 		LOCK THROTTLE TO .1.
+		WAIT 3.
 
-		WAIT 5.
+		SET _missionPhase TO "ToApo".
+	}
+
+	ELSE IF (_missionPhase = "ToApo") {
+		// redundant if starting with "Initial"
+		LOCK STEERING TO SHIP:PROGRADE.
+
+		// we'll hit vacuum before we finish burning, so async
+		WHEN (SHIP:ALTITUDE > SHIP:BODY:ATM:HEIGHT) THEN {
+			PRINT "Jettisoning fairing.".
+			STAGE.
+		}
+
+		PRINT "Burning until target apoapsis.".
 		LOCK THROTTLE TO 1.
+		WAIT UNTIL SHIP:APOAPSIS > _targetAltitude.
+		LOCK THROTTLE TO 0.
 
-		LOCAL _initialAltitude IS SHIP:ALTITUDE.
-		LOCAL LOCK _verticalSpeed TO SHIP:VELOCITY:ORBIT * SHIP:UP:FOREVECTOR.
-		LOCAL _initialVerticalSpeed IS _verticalSpeed.
-		
+		// wait for things to settle down
+		WAIT .01.
 
-		LOCAL _pitchPid IS PIDLOOP(.01, 0.01, 0.01, -.05, .05).
-		SET _pitchPid:SETPOINT TO fn_getIdealVerticalSpeed().
-		LOCAL _pitch IS 1.
-		PRINT SHIP:PROGRADE + " " + SHIP:UP:FOREVECTOR.
-		LOCK STEERING TO LOOKDIRUP(SHIP:PROGRADE:FOREVECTOR, SHIP:UP:FOREVECTOR) + R(0, _pitch, 0).
-		LOCAL _pitchDelta IS 0.
+		SET _missionPhase TO "Circularize".
+	}
 
-		UNTIL (SHIP:APOAPSIS > _desiredAltitude) {
-			PRINT "set:   " + _pitchPid:SETPOINT.
-			PRINT "in:    " + _pitchPid:INPUT.
-			PRINT "pitch: " + _pitch.
+	ELSE IF (_missionPhase = "Circularize") {
+		PRINT "Waiting for vacuum.".
+		WAIT UNTIL SHIP:ALTITUDE > SHIP:BODY:ATM:HEIGHT.
+		WAIT 1.
 
+		PRINT "Creating circularization node.".
+		LOCAL _targetSpeed IS SQRT(SHIP:BODY:MU / (_targetAltitude + SHIP:BODY:RADIUS)).
+		LOCAL _circularizationDv IS _targetSpeed - fn_orbitalSpeedAtAlt(SHIP:APOAPSIS).
+		LOCAL _node IS NODE(TIME:SECONDS + ETA:APOAPSIS, 0, 0, _circularizationDv).
+		ADD _node.
+		WAIT .01.
 
-			SET _pitchDelta TO _pitchPid:UPDATE(TIME:SECONDS, _verticalSpeed).
-			SET _pitch TO MIN(20, MAX(_pitch + _pitchDelta, -20)).
+		fn_executeNextNode().
 
-			WAIT .01.
-		}
+		PRINT "Target orbit achieved.".
+		WAIT 2.
 
+		PRINT "Detaching payload".
+		STAGE.
 
+		SET _missionPhase TO "Deorbit".
+	}
 
+	ELSE IF (_missionPhase = "Deorbit") {
+		PRINT "Re-orienting for deorbit burn.".
+		LOCAL _steering IS SHIP:RETROGRADE:VECTOR.
+		LOCK STEERING TO _steering.
+		fn_waitForShipToFace({ RETURN _steering. }, 5).
 
+		PRINT "Throttle up.".
+		LOCK THROTTLE TO 1.
+		WAIT 5.
 
-		LOCAL FUNCTION fn_getIdealVerticalSpeed {
-			LOCAL _m IS (0 - _initialVerticalSpeed) / (_desiredAltitude - _initialAltitude).
-			LOCAL _x IS SHIP:APOAPSIS.
-			LOCAL _b IS -_m * _desiredAltitude.
-			LOCAL _y IS _m * _x + _b.
-			RETURN _y.
-		}
+		PRINT "I am now trash.".
+
+		SET _done TO TRUE.
 	}
 }
