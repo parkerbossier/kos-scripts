@@ -6,7 +6,7 @@ RUNONCEPATH("functions").
 //WAIT UNTIL FALSE.
 
 // Initial, BoostBurn, MECO, BurnBack, ReEntry, WaitForSuicide, PoweredDescent
-LOCAL _missionPhase IS "WaitForSuicide".
+LOCAL _missionPhase IS "Initial".
 
 // program-global definitions
 LOCAL _launchCamMk2 IS VESSEL("Launch Cam Mk 2").
@@ -90,10 +90,10 @@ UNTIL (_done) {
 
 	ELSE IF (_missionPhase = "BurnBack") {
 		// nominal stopping time to avoid gimbal lock when settling down after the flip turn
-		fn_setStoppingTime(6).
+		fn_setStoppingTime(8).
 
 		PRINT "Re-orienting to engines first.".
-		LOCAL LOCK _burnBackDirection TO LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:UP:VECTOR).
+		LOCK _burnBackDirection TO LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:UP:VECTOR).
 		fn_flipTurnTo({ RETURN _burnBackDirection. }, false).
 		LOCK STEERING TO _burnBackDirection.
 
@@ -111,6 +111,7 @@ UNTIL (_done) {
 
 		PRINT "Burning until target intercept.".
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
+		WAIT .01.
 		LOCAL LOCK _distance TO (ADDONS:TR:IMPACTPOS:POSITION - _returnGeoCoords:POSITION):MAG.
 
 		LOCAL _prevDistance IS _distance.
@@ -217,11 +218,14 @@ UNTIL (_done) {
 		// reconfigure landing parameters at 200m
 		WHEN (_altitude < 200) THEN {
 			// now referring to _verticalVelocity
-			SET _throttlePid:SETPOINT TO -6.
+			SET _throttlePid:SETPOINT TO -7.
 			SET _throttlePid:KP TO .5.
 			SET _throttlePid:KD TO .4.
 			GEAR ON.
 			RCS ON.
+
+			// nominal stopping time to avoid tipping
+			fn_setStoppingTime(3).
 		}
 
 		UNTIL (SHIP:STATUS = "LANDED") {
