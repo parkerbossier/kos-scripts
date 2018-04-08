@@ -12,7 +12,7 @@ LOCAL _missionPhase IS "Initial".
 LOCAL _launchCamMk2 IS VESSEL("Launch Cam Mk 2").
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
 LOCAL _oldMaxStoppingTime IS 0.
-LOCAL _resumeControlAfterSeparation IS TRUE.
+LOCAL _resumeControlAfterSeparation IS FALSE.
 LOCAL _returnGeoCoords IS LATLNG(-.067166787, -74.777452836).
 LOCAL _separationStageNum IS 1.
 LOCAL _switchToLaunchCamAtLanding IS FALSE.
@@ -94,7 +94,9 @@ UNTIL (_done) {
 
 		PRINT "Re-orienting to engines first.".
 		LOCK _burnBackDirection TO LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:UP:VECTOR).
-		fn_flipTurnTo({ RETURN _burnBackDirection. }, false).
+		LOCAL _initialBurnBackDirection IS _burnBackDirection.
+		LOCK STEERING TO _initialBurnBackDirection.
+		fn_flipTurnTo({ RETURN _initialBurnBackDirection. }, true).
 		LOCK STEERING TO _burnBackDirection.
 
 		PRINT "Ignition.".
@@ -134,6 +136,7 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "ReEntry") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
+		WAIT .1.
 
 		// nominal stopping time to avoid gimbal lock when orienting after the flip turn
 		fn_setStoppingTime(4).
@@ -147,7 +150,7 @@ UNTIL (_done) {
 					SHIP:UP:VECTOR
 				).
 			},
-			true
+			false
 		).
 
 		RCS ON.

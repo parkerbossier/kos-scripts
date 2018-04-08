@@ -84,7 +84,7 @@ UNTIL (_done) {
 	}
 
 	ELSE IF (_missionPhase = "Payload") {
-		PRINT "Detaching payload".
+		PRINT "Detaching payload and arming parachutes.".
 		STAGE.
 		WAIT 8.
 
@@ -108,7 +108,7 @@ UNTIL (_done) {
 		LOCK THROTTLE TO 1.
 		WAIT 5.
 
-		PRINT "I am now trash.".
+		PRINT "Home we go.".
 
 		SET _done TO TRUE.
 	}

@@ -5,7 +5,7 @@
 GLOBAL FUNCTION fn_executeNextNode {
 	LOCAL _node IS NEXTNODE.
 
-	PRINT "Warping to maneuver node".
+	PRINT "Warping to maneuver node.".
 	LOCAL LOCK _burnTime TO _node:DELTAV:MAG / (SHIP:AVAILABLETHRUST / SHIP:MASS).
 	WARPTO(TIME:SECONDS + ETA:APOAPSIS - _burnTime/2 - 10).
 
@@ -20,7 +20,7 @@ GLOBAL FUNCTION fn_executeNextNode {
 	LOCK THROTTLE TO 1.
 	WAIT UNTIL _burnTime < 1.
 
-	PRINT "Throttling down for fine tuning".
+	PRINT "Throttling down for fine tuning.".
 	LOCK THROTTLE TO 1/5.
 	
 	// wait for us to bottom out the dV remaining
@@ -59,12 +59,12 @@ GLOBAL FUNCTION fn_filter {
 // Performs a flip turn to the desired direction
 //
 // PARAM _directionFunc: A function that returns the target direction (it's a function so that it can change during execution)
-// PARAM _bailAfterArrest If true, we return before waiting for the final fine tuning happens (i.e. immediately after our flip turn stops)
+// PARAM _bailOnOvershoot If true, we return as soon as overshoot occurs (presumably engines will then take over). Otherwise, we'll fine tune then return.
 //
 // NOTE: The ship will perform roll adjustment last, but the functino will return before it's done
 GLOBAL FUNCTION fn_flipTurnTo {
 	PARAMETER _directionFunc.
-	PARAMETER _bailAfterArrest.
+	PARAMETER _bailOnOvershoot.
 	LOCAL LOCK _direction TO _directionFunc().
 
 	// orient such that up is facing the target direction
@@ -78,18 +78,12 @@ GLOBAL FUNCTION fn_flipTurnTo {
 	LOCAL LOCK _angularVelocityDeg TO SHIP:ANGULARVEL:MAG * 180 / CONSTANT:PI.
 	LOCAL LOCK _done TO STEERINGMANAGER:ROLLERROR < 1 AND _angularVelocityDeg < 2.
 	WAIT UNTIL _done.
-	// {
-	// 	PRINT STEERINGMANAGER:ROLLERROR + " + " + _angularVelocityDeg.
-	// 	WAIT .01.
-	// }.
 	UNLOCK _done.
 
 	// final stability assurance
 	LOCK STEERING TO "KILL".
 	WAIT 1.
 	UNLOCK STEERING.
-
-	// TODO: recalculate time to halting burn on the fly instead of relying on theory (air restatnce is a thing)
 
 	// begin flip
 	LOCAL _burnTime IS 2.
@@ -98,30 +92,35 @@ GLOBAL FUNCTION fn_flipTurnTo {
 	SET SHIP:CONTROL:PITCH TO 0.
 	WAIT .01.
 
-	// end flip
+	// mmmm inertia (wait for either (1) we're at the suicide point or (2) we're no longer getting closer becasue of atmo)
 	LOCAL _rcsAcceleration IS _angularVelocityDeg / _burnTime.
-	LOCAL LOCK _burnTimeToArrest TO _angularVelocityDeg / _rcsAcceleration.
-	LOCAL LOCK _degreesToArrest TO _angularVelocityDeg*_burnTimeToArrest - 1/2*_rcsAcceleration*(_burnTimeToArrest^2).
+	LOCAL LOCK _arrestBurnDuration TO _angularVelocityDeg / _rcsAcceleration.
+	LOCAL LOCK _degreesToArrest TO _angularVelocityDeg*_arrestBurnDuration - 1/2*_rcsAcceleration*(_arrestBurnDuration^2).
 	LOCAL LOCK _degreesToTarget TO VANG(SHIP:FACING:VECTOR, _direction:VECTOR).
-
-	WAIT UNTIL (_degreesToTarget <= _degreesToArrest).
-	// {
-	// 	PRINT "target: " + _degreesToTarget.
-	// 	PRINT "arrest: " + _degreesToArrest.
-	// 	WAIT .1.
-	// }
-
-	SET SHIP:CONTROL:PITCH TO -1.
-	WAIT _burnTimeToArrest.
-	SET SHIP:CONTROL:PITCH TO 0.
-
-	IF (_bailAfterArrest) {
-		RETURN.
+	LOCAL _prevDegreesToTarget IS _degreesToTarget.
+	UNTIL (_degreesToTarget <= _degreesToArrest OR _degreesToTarget > _prevDegreesToTarget) {
+		SET _prevDegreesToTarget TO _degreesToTarget.
+		WAIT .01.
 	}
 
+	// end flip (by blindly burning for the calculated time)
+	SET SHIP:CONTROL:PITCH TO -1.
+	LOCAL _timeBurnCompleted IS TIME:SECONDS + _arrestBurnDuration.
+	LOCAL _prevDegreesToTarget IS _degreesToTarget.
+	UNTIL TIME:SECONDS >= _timeBurnCompleted {
+		// if specified, bail out as soon as we overshoot
+		// (only likely in atmo because of the extra torque)
+		IF (_bailOnOvershoot AND _degreesToTarget > _prevDegreesToTarget) {
+			SET SHIP:CONTROL:PITCH TO 0.
+			RETURN.
+		}
+		SET _prevDegreesToTarget TO _degreesToTarget.
+		WAIT .01.
+	}.
+	SET SHIP:CONTROL:PITCH TO 0.
+
 	// fine tuning
-	LOCAL _foo IS _direction.
-	LOCK STEERING TO _foo.
+	LOCK STEERING TO _directionFunc().
 	fn_waitForShipToFace({ RETURN _direction:VECTOR. }, 10).
 
 	RCS OFF.
