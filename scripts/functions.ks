@@ -31,6 +31,10 @@ GLOBAL FUNCTION fn_executeNextNode {
 	}
 	LOCK THROTTLE TO 0.
 	RCS OFF.
+
+	// TODO: REMOVE _node, but kOS throws an error :/
+	//WAIT 1.
+	//REMOVE _node.
 }
 
 //**

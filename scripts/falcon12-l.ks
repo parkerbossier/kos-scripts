@@ -5,15 +5,18 @@ RUNONCEPATH("functions").
 
 //WAIT UNTIL FALSE.
 
-// Initial, BoostBurn, MECO, BurnBack, ReEntry, PoweredDescent
-LOCAL _missionPhase IS "BurnBack".
+// Initial, BoostBurn, MECO, BurnBack, ReEntry, WaitForSuicide, PoweredDescent
+LOCAL _missionPhase IS "WaitForSuicide".
 
 // program-global definitions
+LOCAL _launchCamMk2 IS VESSEL("Launch Cam Mk 2").
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
 LOCAL _oldMaxStoppingTime IS 0.
-LOCAL _resumeControlAfterSeparation IS FALSE.
+LOCAL _resumeControlAfterSeparation IS TRUE.
 LOCAL _returnGeoCoords IS LATLNG(-.067166787, -74.777452836).
 LOCAL _separationStageNum IS 1.
+LOCAL _switchToLaunchCamAtLanding IS FALSE.
+LOCAL _switchToLaunchCamAtLaunch IS FALSE.
 
 LOCAL _done IS FALSE.
 UNTIL (_done) {
@@ -27,6 +30,12 @@ UNTIL (_done) {
 
 		PRINT "Launch.".
 		STAGE.
+
+		WAIT .1.
+		IF (_switchToLaunchCamAtLaunch) {
+			KUNIVERSE:FORCEACTIVE(_launchCamMk2).
+		}
+
 		WAIT UNTIL SHIP:ALTITUDE > 300.
 
 		PRINT "Roll program.".
@@ -147,14 +156,20 @@ UNTIL (_done) {
 
 		PRINT "Deploying grid fins.".
 		BRAKES ON.
+		SET STEERINGMANAGER:ROLLTS TO 1.
+		WAIT UNTIL SHIP:ALTITUDE < 9000.
 
-		SET _missionPhase TO "PoweredDescent".
+		PRINT "Switching guidance to surface retrograde.".
+		// retrograde deceleration is ideal here
+		LOCK _reentrySteering TO LOOKDIRUP(SHIP:SRFRETROGRADE:VECTOR, HEADING(-90, 0):VECTOR).
+
+		SET _missionPhase TO "WaitForSuicide".
 	}
 
-	ELSE IF (_missionPhase = "PoweredDescent") {
+	ELSE IF (_missionPhase = "WaitForSuicide") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
-		LOCK _reentrySteering TO LOOKDIRUP(ADDONS:TR:CORRECTEDVEC, SHIP:UP:VECTOR).
-		LOCK STEERING TO _reentrySteering.
+		LOCK STEERING TO LOOKDIRUP(SHIP:SRFRETROGRADE:VECTOR, HEADING(-90, 0):VECTOR).
+		SET STEERINGMANAGER:ROLLTS TO 1.
 
 		// nominal stopping time to avoid gimbal lock
 		fn_setStoppingTime(4).
@@ -164,13 +179,28 @@ UNTIL (_done) {
 			RCS OFF.
 		}
 
+		IF (_switchToLaunchCamAtLanding) {
+			WHEN (_launchCamMk2:LOADED) THEN {
+				WAIT 1.
+				KUNIVERSE:FORCEACTIVE(_launchCamMk2).
+				WAIT 1.
+			}
+		}
+
 		PRINT "Waiting for estimated suicide burn.".
 		WAIT UNTIL fn_calculateDistanceToSuicideBurn() < 0.
 
+		SET _missionPhase TO "PoweredDescent".
+	}
+
+	ELSE IF (_missionPhase = "PoweredDescent") {
 		PRINT "Beginning powered descent.".
 		LOCAL LOCK _altitude TO SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT.
 		LOCAL LOCK _distanceToBurn TO fn_calculateDistanceToSuicideBurn().
 		LOCAL LOCK _verticalVelocity TO SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
+
+		// retrograde deceleration is ideal here
+		LOCK STEERING TO LOOKDIRUP(SHIP:SRFRETROGRADE:VECTOR, HEADING(-90, 0):VECTOR).
 
 		// tuned empericaly
 		LOCAL _throttlePid IS PIDLOOP(.7, .1, .4, -.05, .05).
@@ -183,9 +213,6 @@ UNTIL (_done) {
 		LOCAL _throttle IS 1.
 		LOCK THROTTLE TO _throttle.
 		LOCAL _throttleDelta IS 0.
-
-		// retrograde deceleration is ideal here
-		LOCK STEERING TO LOOKDIRUP(SHIP:SRFRETROGRADE:VECTOR, HEADING(-90, 0):VECTOR).
 
 		// reconfigure landing parameters at 200m
 		WHEN (_altitude < 200) THEN {

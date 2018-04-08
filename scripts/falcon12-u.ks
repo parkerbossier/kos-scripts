@@ -3,7 +3,7 @@ CLEARSCREEN.
 
 RUNONCEPATH("functions").
 
-// Initial, SlowStart, ToApo, Circularize, Deorbit
+// Initial, SlowStart, ToApo, Circularize, Payload, Deorbit
 LOCAL _missionPhase IS "Initial".
 
 // program-global definitions
@@ -80,6 +80,10 @@ UNTIL (_done) {
 		PRINT "Target orbit achieved.".
 		WAIT 2.
 
+		SET _missionPhase TO "Payload".
+	}
+
+	ELSE IF (_missionPhase = "Payload") {
 		PRINT "Detaching payload".
 		STAGE.
 		WAIT 8.
