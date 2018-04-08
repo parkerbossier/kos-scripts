@@ -1,4 +1,7 @@
+@LAZYGLOBAL OFF.
 
+//**
+// Executes the next node on the stack
 GLOBAL FUNCTION fn_executeNextNode {
 	LOCAL _node IS NEXTNODE.
 
@@ -30,6 +33,11 @@ GLOBAL FUNCTION fn_executeNextNode {
 	RCS OFF.
 }
 
+//**
+// Returns a new list consisting of items that match the given lambda.
+//
+// PARAM _list: The list to filter over
+// PARAM _lambda: A function that is passed an item in _list and should return TRUE to include the item
 GLOBAL FUNCTION fn_filter {
 	PARAMETER _list.
 	PARAMETER _lambda.
@@ -43,23 +51,33 @@ GLOBAL FUNCTION fn_filter {
 	RETURN _filtered.
 }
 
-//** Performs a flip turn to the desired direction (lastly including roll, but not waited for)
+//**
+// Performs a flip turn to the desired direction
+//
+// PARAM _directionFunc: A function that returns the target direction (it's a function so that it can change during execution)
+// PARAM _bailAfterArrest If true, we return before waiting for the final fine tuning happens (i.e. immediately after our flip turn stops)
+//
+// NOTE: The ship will perform roll adjustment last, but the functino will return before it's done
 GLOBAL FUNCTION fn_flipTurnTo {
-	PARAMETER _direction.
+	PARAMETER _directionFunc.
 	PARAMETER _bailAfterArrest.
+	LOCAL LOCK _direction TO _directionFunc().
 
 	// orient such that up is facing the target direction
 	RCS ON.
-	LOCAL _steering IS LOOKDIRUP(SHIP:FACING:VECTOR, _direction:VECTOR).
+	LOCAL _bar IS SHIP:FACING:VECTOR.
+	LOCAL _steering IS LOOKDIRUP(_bar, _direction:VECTOR).
 	LOCK STEERING TO _steering.
 	WAIT .01.
 
 	// make sure we're sufficiently stable
-	LOCAL LOCK _done TO STEERINGMANAGER:ROLLERROR < 1 AND SHIP:ANGULARMOMENTUM:MAG < 4.
-	UNTIL _done {
-		//PRINT STEERINGMANAGER:ROLLERROR + " + " + SHIP:ANGULARMOMENTUM:MAG.
-		WAIT .01.
-	}.
+	LOCAL LOCK _angularVelocityDeg TO SHIP:ANGULARVEL:MAG * 180 / CONSTANT:PI.
+	LOCAL LOCK _done TO STEERINGMANAGER:ROLLERROR < 1 AND _angularVelocityDeg < 2.
+	WAIT UNTIL _done.
+	// {
+	// 	PRINT STEERINGMANAGER:ROLLERROR + " + " + _angularVelocityDeg.
+	// 	WAIT .01.
+	// }.
 	UNLOCK _done.
 
 	// final stability assurance
@@ -74,20 +92,20 @@ GLOBAL FUNCTION fn_flipTurnTo {
 	SET SHIP:CONTROL:PITCH TO 1.
 	WAIT _burnTime.
 	SET SHIP:CONTROL:PITCH TO 0.
-	WAIT .001.
+	WAIT .01.
 
 	// end flip
-	LOCAL LOCK _angularVelocityDeg TO SHIP:ANGULARVEL:MAG * 180 / CONSTANT:PI.
 	LOCAL _rcsAcceleration IS _angularVelocityDeg / _burnTime.
 	LOCAL LOCK _burnTimeToArrest TO _angularVelocityDeg / _rcsAcceleration.
 	LOCAL LOCK _degreesToArrest TO _angularVelocityDeg*_burnTimeToArrest - 1/2*_rcsAcceleration*(_burnTimeToArrest^2).
 	LOCAL LOCK _degreesToTarget TO VANG(SHIP:FACING:VECTOR, _direction:VECTOR).
 
-	UNTIL (_degreesToTarget <= _degreesToArrest) {
-		//PRINT "target: " + _degreesToTarget.
-		//PRINT "arrest: " + _degreesToArrest.
-		WAIT .01.
-	}
+	WAIT UNTIL (_degreesToTarget <= _degreesToArrest).
+	// {
+	// 	PRINT "target: " + _degreesToTarget.
+	// 	PRINT "arrest: " + _degreesToArrest.
+	// 	WAIT .1.
+	// }
 
 	SET SHIP:CONTROL:PITCH TO -1.
 	WAIT _burnTimeToArrest.
@@ -98,13 +116,18 @@ GLOBAL FUNCTION fn_flipTurnTo {
 	}
 
 	// fine tuning
-	LOCK STEERING TO _direction.
+	LOCAL _foo IS _direction.
+	LOCK STEERING TO _foo.
 	fn_waitForShipToFace({ RETURN _direction:VECTOR. }, 10).
 
 	RCS OFF.
 	UNLOCK _direction.
 }
 
+//**
+// Returns the gravity magnitude at the given altitude.
+//
+// PARAM _altitude: (in meters)
 GLOBAL FUNCTION fn_getGravityAtAlt {
 	PARAMETER _altitude.
 
@@ -112,32 +135,33 @@ GLOBAL FUNCTION fn_getGravityAtAlt {
 	RETURN _gravity.
 }
 
-GLOBAL FUNCTION fn_orbitalSpeedAtAlt {
+//**
+// Returns the orbital speed at the given altitude.
+//
+// PARAM _altitude: (in meters)
+GLOBAL FUNCTION fn_getOrbitalSpeedAt {
 	PARAMETER _altitude.
 
 	LOCAL _r IS SHIP:BODY:RADIUS + _altitude.
 	RETURN SQRT(SHIP:BODY:MU * (2/_r - 1/SHIP:ORBIT:SEMIMAJORAXIS)).
 }
 
-GLOBAL FUNCTION fn_map {
-	PARAMETER _list.
-	PARAMETER _lambda.
-
-	LOCAL _mapped IS LIST().
-	FOR _item IN _list {
-		_mapped:ADD(_labmda(_item)).
-	}
-	RETURN _mapped.
-}
-
+//**
+// A thin wrapper for setting STEERINGMANAGER:MAXSTOPPINGTIME.
+//
+// PARAM _time: (in seconds)
+//
+// TODO: remember the previous value and allow for resetting
 GLOBAL FUNCTION fn_setStoppingTime {
-	PARAMETER _value.
-
-	//SET _oldMaxStoppingTime TO STEERINGMANAGER:MAXSTOPPINGTIME.
-	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _value.
+	PARAMETER _time.
+	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _time.
 }
 
-//** Waits for the ship to face the given vector (to within the given threshold)
+//**
+// Waits for the ship to face the given vector (to within the given threshold).
+//
+// PARAM _vectorFunc: A function that returns the target vector (it's a function so that it can change during execution)
+// PARAM _threshold: The number of degrees below which we're "facing"
 GLOBAL FUNCTION fn_waitForShipToFace {
 	PARAMETER _vectorFunc.
 	PARAMETER _threshold.

@@ -6,14 +6,13 @@ RUNONCEPATH("functions").
 //WAIT UNTIL FALSE.
 
 // Initial, BoostBurn, MECO, BurnBack, ReEntry, PoweredDescent
-LOCAL _missionPhase IS "Initial".
+LOCAL _missionPhase IS "BurnBack".
 
 // program-global definitions
 LOCAL _lowerStageCPUPart IS SHIP:PARTSTAGGED("lowerStageCPU")[0].
 LOCAL _oldMaxStoppingTime IS 0.
-LOCAL _padGeoCoords IS LATLNG(-.067166787, -74.777452836).
-LOCAL _resumeControlAfterSeparation IS TRUE.
-LOCAL _returnGeoCoords IS _padGeoCoords.
+LOCAL _resumeControlAfterSeparation IS FALSE.
+LOCAL _returnGeoCoords IS LATLNG(-.067166787, -74.777452836).
 LOCAL _separationStageNum IS 1.
 
 LOCAL _done IS FALSE.
@@ -21,6 +20,7 @@ UNTIL (_done) {
 
 	IF (_missionPhase = "Initial") {
 		PRINT "Throttle up. Guidance set.".
+		fn_setStoppingTime(1).
 		LOCK STEERING TO HEADING(0, 90).
 		LOCK THROTTLE TO 1.
 		WAIT .5.
@@ -45,17 +45,14 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "BoostBurn") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		LOCK THROTTLE TO 1.
-		WAIT .1.
 
 		PRINT "Locking to prograde.".
 		LOCK STEERING TO SHIP:SRFPROGRADE.
 
 		PRINT "Burning until point of no return.".
-		LOCAL LOCK _lowerStageDvDetached TO fn_calculateDv(1, TRUE).
+		LOCAL LOCK _lowerStageDvDetached TO fn_calculateDv(TRUE).
 		LOCAL LOCK _dvUntilMeco TO _lowerStageDvDetached - SHIP:VELOCITY:SURFACE:MAG*2.
 		WAIT UNTIL _dvUntilMeco <= 0.
-		UNLOCK _dvUntilMeco.
-		UNLOCK _lowerStageDvDetached.
 
 		SET _missionPhase TO "MECO".
 	}
@@ -66,7 +63,7 @@ UNTIL (_done) {
 		WAIT 1.
 
 		// we need to signal the upper stage so that it can control staging
-		// (because inter-vessel commsunication is broken)
+		// (because vessel-vessel communication is broken)
 		PRINT "Transfering staging control to upper stage.".
 		LOCAL _upperStageCPU IS PROCESSOR("upperStageCPU").
 		_upperStageCPU:CONNECTION:SENDMESSAGE(TRUE).
@@ -79,19 +76,16 @@ UNTIL (_done) {
 			KUNIVERSE:FORCEACTIVE(_lowerStageCPUPart:SHIP).
 		}
 
-		//PRINT "Quicksaving.".
-		//WAIT .5.
-		//KUNIVERSE:QUICKSAVETO("mission").
-		//WAIT .5.
-
 		SET _missionPhase TO "BurnBack".
 	}
 
 	ELSE IF (_missionPhase = "BurnBack") {
-		fn_setStoppingTime(3).
+		// nominal stopping time to avoid gimbal lock when settling down after the flip turn
+		fn_setStoppingTime(6).
+
 		PRINT "Re-orienting to engines first.".
 		LOCAL LOCK _burnBackDirection TO LOOKDIRUP(HEADING(_returnGeoCoords:HEADING, 0):VECTOR, SHIP:UP:VECTOR).
-		fn_flipTurnTo(_burnBackDirection, false).
+		fn_flipTurnTo({ RETURN _burnBackDirection. }, false).
 		LOCK STEERING TO _burnBackDirection.
 
 		PRINT "Ignition.".
@@ -103,21 +97,25 @@ UNTIL (_done) {
 			WAIT UNTIL FALSE.
 		}
 
+		// nominal stopping time for staying pointed towards home
+		fn_setStoppingTime(1).
+
 		PRINT "Burning until target intercept.".
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
 		LOCAL LOCK _distance TO (ADDONS:TR:IMPACTPOS:POSITION - _returnGeoCoords:POSITION):MAG.
+
 		LOCAL _prevDistance IS _distance.
 		LOCAL LOCK _distanceDelta TO _distance - _prevDistance.
-		UNTIL (_distanceDelta > 0) { //} AND _distance > 1000) {
+
+		// when _distanceDelta < 0, we're getting closer, otherwise we're getting farther
+		UNTIL (_distanceDelta > 0) {
 			SET _prevDistance TO _distance.
-			// using .1 so that we don't have noise ruin our stopping condition
-			WAIT .1.
+			// using .05 so that we don't have noise ruin our stopping condition
+			WAIT .05.
 		}
 
 		LOCK THROTTLE TO 0.
 		PRINT "Burn complete. Error: " + ROUND(_distanceDelta) + "m.".
-		UNLOCK _distance.
-		UNLOCK _distanceDelta.
 		WAIT 1.
 
 		SET _missionPhase TO "ReEntry".
@@ -126,15 +124,19 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "ReEntry") {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		ADDONS:TR:SETTARGET(_returnGeoCoords).
-		fn_setStoppingTime(1).
+
+		// nominal stopping time to avoid gimbal lock when orienting after the flip turn
+		fn_setStoppingTime(4).
 
 		PRINT "Re-orient for re-entry.".
-		// flipping a full 180 is too finicky
+		// flipping a full 180 is too finicky, so look slightly towards UP
 		fn_flipTurnTo(
-			LOOKDIRUP(
-				VXCL(SHIP:UP:VECTOR, SHIP:RETROGRADE:VECTOR):NORMALIZED + SHIP:UP:VECTOR:NORMALIZED/2,
-				SHIP:UP:VECTOR
-			),
+			{ RETURN
+				LOOKDIRUP(
+					VXCL(SHIP:UP:VECTOR, SHIP:RETROGRADE:VECTOR):NORMALIZED + SHIP:UP:VECTOR:NORMALIZED/2,
+					SHIP:UP:VECTOR
+				).
+			},
 			true
 		).
 
@@ -146,11 +148,6 @@ UNTIL (_done) {
 		PRINT "Deploying grid fins.".
 		BRAKES ON.
 
-		// async
-		WHEN (SHIP:ALTITUDE < 20000) THEN {
-			RCS OFF.
-		}
-
 		SET _missionPhase TO "PoweredDescent".
 	}
 
@@ -158,6 +155,11 @@ UNTIL (_done) {
 		// the below contiguous lines are unnecessary if entering directly into this phase
 		LOCK _reentrySteering TO LOOKDIRUP(ADDONS:TR:CORRECTEDVEC, SHIP:UP:VECTOR).
 		LOCK STEERING TO _reentrySteering.
+
+		// nominal stopping time to avoid gimbal lock
+		fn_setStoppingTime(4).
+
+		// RCS is useless under 20000
 		WHEN (SHIP:ALTITUDE < 20000) THEN {
 			RCS OFF.
 		}
@@ -170,20 +172,31 @@ UNTIL (_done) {
 		LOCAL LOCK _distanceToBurn TO fn_calculateDistanceToSuicideBurn().
 		LOCAL LOCK _verticalVelocity TO SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
 
+		// tuned empericaly
 		LOCAL _throttlePid IS PIDLOOP(.7, .1, .4, -.05, .05).
+
+		// initially referring to _distanceToBurn;
+		// in other words, keep our distance-to-suicide-burn at 100m in front of us
+		// so that we have enough breathing room to slow down and touch down softly at 200m from the ground
 		SET _throttlePid:SETPOINT TO 100.
 
 		LOCAL _throttle IS 1.
 		LOCK THROTTLE TO _throttle.
 		LOCAL _throttleDelta IS 0.
 
-		LOCK STEERING TO SHIP:SRFRETROGRADE.
+		// retrograde deceleration is ideal here
+		LOCK STEERING TO LOOKDIRUP(SHIP:SRFRETROGRADE:VECTOR, HEADING(-90, 0):VECTOR).
+
+		// reconfigure landing parameters at 200m
 		WHEN (_altitude < 200) THEN {
-			SET _throttlePid:SETPOINT TO -15.
-				SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _verticalVelocity).
-				GEAR ON.
-				RCS ON.
+			// now referring to _verticalVelocity
+			SET _throttlePid:SETPOINT TO -6.
+			SET _throttlePid:KP TO .5.
+			SET _throttlePid:KD TO .4.
+			GEAR ON.
+			RCS ON.
 		}
+
 		UNTIL (SHIP:STATUS = "LANDED") {
 			if (_altitude < 200) {
 				SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _verticalVelocity).
@@ -195,16 +208,18 @@ UNTIL (_done) {
 			SET _throttle TO MIN(1, MAX(_throttle + _throttleDelta, 0)).
 
 			// 5m is close enough
+			// TODO: do we ever actually get here since our COG is so high?
 			IF (_altitude < 5) {
 				BREAK.
 			}
 
+			// nominal delay for iterating the PID
 			WAIT .01.
 		}
 
 		PRINT "Touchdown. Stabilizing.".
 		LOCK THROTTLE TO 0.
-		LOCK STEERING TO SHIP:FACING.
+		LOCK STEERING TO "KILL".
 		WAIT 1.
 
 		PRINT "The Falcon has landed.".
@@ -220,8 +235,6 @@ UNTIL (_done) {
 		}
 
 		SET _done TO TRUE.
-
-		// no need to unlock the recently created LOCKs because we're done
 	}
 }
 
@@ -229,20 +242,24 @@ UNTIL (_done) {
 
 
 
-//
-//
-// FUNCTION DECLARATIONS
-//
-//
 
 
-// Calculates the dV of the given stage.
-// If _detached is true, the dV will be calculated as if the stage were isolated.
-// If _detached is false, the dV will be calculated in relation to the whole vessel.
+
+
+
+
+
+
+
+
+//**
+// Returns the dV of the given stage.
+//
+// PARAM _detached: Whether to calculate the dV for the stage assuming it's detached from the rest of the ship
 LOCAL FUNCTION fn_calculateDv {
-	PARAMETER _stage.
 	PARAMETER _detached.
 
+	LOCAL _stage IS _separationStageNum.
 	LOCAL _parts IS fn_filter(
 		SHIP:PARTS, 
 		{ PARAMETER _part. RETURN _part:STAGE >= _stage. }
@@ -264,15 +281,6 @@ LOCAL FUNCTION fn_calculateDv {
 	// https://forum.kerbalspaceprogram.com/index.php?/topic/156258-burn-time-calculator/
 	LOCAL _stageIsp IS _stageIspNumerator / _stageIspDenominator.
 
-	IF (FALSE) {
-		PRINT " ".
-		PRINT _stageDryMass.
-		PRINT _stageIsp.
-		PRINT _stageMass.
-		PRINT _stage.
-		PRINT _parts.
-	}
-
 	// prevent NaN errors
 	IF (_stageDryMass * _stageIsp * _stageMass = 0) {
 		RETURN 0.
@@ -286,8 +294,9 @@ LOCAL FUNCTION fn_calculateDv {
 	}
 }
 
+//**
+// Returns the distance between the ship and the start of the suicide burn.
 LOCAL FUNCTION fn_calculateDistanceToSuicideBurn {
-	// negative means down
 	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAtAlt(SHIP:ALTITUDE).
 	LOCAL _v IS SHIP:VELOCITY:SURFACE:MAG.
 	LOCAL _stoppingTime IS _v / _verticalAcc.
@@ -295,8 +304,4 @@ LOCAL FUNCTION fn_calculateDistanceToSuicideBurn {
 
 	LOCAL _distanceToBurn IS SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _stoppingDistance.
 	RETURN _distanceToBurn.
-}
-
-LOCAL FUNCTION fn_resetStoppingTime {
-	SET STEERINGMANAGER:MAXSTOPPINGTIME TO _oldMaxStoppingTime.
 }

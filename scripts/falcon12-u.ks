@@ -1,8 +1,6 @@
 @LAZYGLOBAL OFF.
 CLEARSCREEN.
 
-// TODO: move RCS down
-
 RUNONCEPATH("functions").
 
 // Initial, SlowStart, ToApo, Circularize, Deorbit
@@ -22,7 +20,7 @@ UNTIL (_done) {
 		STAGE.
 
 		// keep our distance
-		WAIT 6.
+		WAIT 5.
 
 		SET _missionPhase TO "SlowStart".
 	}
@@ -64,15 +62,18 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "Circularize") {
 		PRINT "Waiting for vacuum.".
 		WAIT UNTIL SHIP:ALTITUDE > SHIP:BODY:ATM:HEIGHT.
-		WAIT 1.
+
+		// wait for the fairing deployment to settle
+		WAIT 2.
 
 		PRINT "Creating circularization node.".
 		LOCAL _targetSpeed IS SQRT(SHIP:BODY:MU / (_targetAltitude + SHIP:BODY:RADIUS)).
-		LOCAL _circularizationDv IS _targetSpeed - fn_orbitalSpeedAtAlt(SHIP:APOAPSIS).
+		LOCAL _circularizationDv IS _targetSpeed - fn_getOrbitalSpeedAt(SHIP:APOAPSIS).
 		LOCAL _node IS NODE(TIME:SECONDS + ETA:APOAPSIS, 0, 0, _circularizationDv).
 		ADD _node.
 		WAIT .01.
 
+		// nominal stopping time to avoid gimbal lock
 		fn_setStoppingTime(4).
 		fn_executeNextNode().
 
@@ -81,7 +82,7 @@ UNTIL (_done) {
 
 		PRINT "Detaching payload".
 		STAGE.
-		WAIT 6.
+		WAIT 8.
 
 		SET _missionPhase TO "Deorbit".
 	}
@@ -89,6 +90,7 @@ UNTIL (_done) {
 	ELSE IF (_missionPhase = "Deorbit") {
 		PRINT "Re-orienting for deorbit burn.".
 		LOCAL _steering IS SHIP:RETROGRADE:VECTOR.
+		// nominal stopping time to avoid gimbal lock
 		fn_setStoppingTime(2).
 		LOCK STEERING TO _steering.
 		RCS ON.
