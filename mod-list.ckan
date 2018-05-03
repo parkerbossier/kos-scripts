@@ -1,0 +1,233 @@
+{
+	"kind": "metapackage",
+	"abstract": "A list of modules installed on the auto KSP instance",
+	"name": "installed-auto",
+	"license": "unknown",
+	"version": "2018.05.03.04.29.00",
+	"identifier": "installed-auto",
+	"spec_version": "v1.6",
+	"recommends": [
+		{
+			"name": "PreciseManeuver"
+		},
+		{
+			"name": "Kopernicus"
+		},
+		{
+			"name": "xScience"
+		},
+		{
+			"name": "HullcamVDSContinued"
+		},
+		{
+			"name": "AllYAll"
+		},
+		{
+			"name": "KAS"
+		},
+		{
+			"name": "KerbalInventorySystemNoFun"
+		},
+		{
+			"name": "KerbnetController"
+		},
+		{
+			"name": "KIS"
+		},
+		{
+			"name": "ModuleManager"
+		},
+		{
+			"name": "PhysicsRangeExtender"
+		},
+		{
+			"name": "surfacelights"
+		},
+		{
+			"name": "KerbalEngineerRedux"
+		},
+		{
+			"name": "UniversalStorage"
+		},
+		{
+			"name": "WaypointManager"
+		},
+		{
+			"name": "CommunityCategoryKit"
+		},
+		{
+			"name": "EasyVesselSwitch"
+		},
+		{
+			"name": "ClickThroughBlocker"
+		},
+		{
+			"name": "DockingPortAlignmentIndicator"
+		},
+		{
+			"name": "InfernalRobotics"
+		},
+		{
+			"name": "RealPlume-StockConfigs"
+		},
+		{
+			"name": "CommunityResourcePack"
+		},
+		{
+			"name": "DistantObject"
+		},
+		{
+			"name": "DistantObject-default"
+		},
+		{
+			"name": "Chatterer"
+		},
+		{
+			"name": "AGExt"
+		},
+		{
+			"name": "AVP-8kTextures"
+		},
+		{
+			"name": "ContractsWindowPlus"
+		},
+		{
+			"name": "RealPlume"
+		},
+		{
+			"name": "AntennaHelper"
+		},
+		{
+			"name": "KerbalAlarmClock"
+		},
+		{
+			"name": "ContractParser"
+		},
+		{
+			"name": "CrewLight"
+		},
+		{
+			"name": "AstronomersVisualPack"
+		},
+		{
+			"name": "Scatterer"
+		},
+		{
+			"name": "Scatterer-sunflare"
+		},
+		{
+			"name": "EngineLighting"
+		},
+		{
+			"name": "VenStockRevamp"
+		},
+		{
+			"name": "SmokeScreen"
+		},
+		{
+			"name": "Scatterer-config"
+		},
+		{
+			"name": "InfernalRobotics-LegacyParts"
+		},
+		{
+			"name": "LaserDist"
+		},
+		{
+			"name": "RasterPropMonitor"
+		},
+		{
+			"name": "BetterTimeWarpCont"
+		},
+		{
+			"name": "DMagicOrbitalScience"
+		},
+		{
+			"name": "RasterPropMonitor-Core"
+		},
+		{
+			"name": "Toolbar"
+		},
+		{
+			"name": "ProgressParser"
+		},
+		{
+			"name": "SpaceXLegs"
+		},
+		{
+			"name": "PersistentRotation"
+		},
+		{
+			"name": "Impact"
+		},
+		{
+			"name": "ColorCodedCans"
+		},
+		{
+			"name": "FuelTanksPlus"
+		},
+		{
+			"name": "RCSBuildAidCont"
+		},
+		{
+			"name": "Trajectories"
+		},
+		{
+			"name": "EnvironmentalVisualEnhancements"
+		},
+		{
+			"name": "WasdEditorCameraContinued"
+		},
+		{
+			"name": "JanitorsCloset"
+		},
+		{
+			"name": "FilterExtensions"
+		},
+		{
+			"name": "TweakScale"
+		},
+		{
+			"name": "MechJeb2"
+		},
+		{
+			"name": "SCANsat"
+		},
+		{
+			"name": "DockingPortSoundFX"
+		},
+		{
+			"name": "ThrottleControlledAvionics"
+		},
+		{
+			"name": "NavballDockAlignIndCE"
+		},
+		{
+			"name": "AT-Utils"
+		},
+		{
+			"name": "ConfigurableContainers-Core"
+		},
+		{
+			"name": "kOS"
+		},
+		{
+			"name": "TextureReplacer"
+		},
+		{
+			"name": "ToolbarController"
+		},
+		{
+			"name": "ModularFlightIntegrator"
+		},
+		{
+			"name": "LoadingScreenManager"
+		},
+		{
+			"name": "PlanetShine"
+		},
+		{
+			"name": "PlanetShine-Config-Default"
+		}
+	]
+}
