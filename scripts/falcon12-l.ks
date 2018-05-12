@@ -327,15 +327,3 @@ LOCAL FUNCTION fn_calculateDv {
 		RETURN _stageIsp * 9.8 * LN(_shipMass / (SHIP:MASS - _stageMass + _stageDryMass)).
 	}
 }
-
-//**
-// Returns the distance between the ship and the start of the suicide burn.
-LOCAL FUNCTION fn_calculateDistanceToSuicideBurn {
-	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAtAlt(SHIP:ALTITUDE).
-	LOCAL _v IS SHIP:VELOCITY:SURFACE:MAG.
-	LOCAL _stoppingTime IS _v / _verticalAcc.
-	LOCAL _stoppingDistance IS _v * _stoppingTime - (1/2 * _verticalAcc * _stoppingTime^2).
-
-	LOCAL _distanceToBurn IS SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _stoppingDistance.
-	RETURN _distanceToBurn.
-}

@@ -1,6 +1,18 @@
 @LAZYGLOBAL OFF.
 
 //**
+// Returns the distance between the ship and the start of the suicide burn.
+GLOBAL FUNCTION fn_calculateDistanceToSuicideBurn {
+	LOCAL _verticalAcc IS SHIP:AVAILABLETHRUST/SHIP:MASS - fn_getGravityAtAlt(SHIP:ALTITUDE).
+	LOCAL _v IS SHIP:VELOCITY:SURFACE:MAG.
+	LOCAL _stoppingTime IS _v / _verticalAcc.
+	LOCAL _stoppingDistance IS _v * _stoppingTime - (1/2 * _verticalAcc * _stoppingTime^2).
+
+	LOCAL _distanceToBurn IS SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT - _stoppingDistance.
+	RETURN _distanceToBurn.
+}
+
+//**
 // Executes the next node on the stack
 GLOBAL FUNCTION fn_executeNextNode {
 	LOCAL _node IS NEXTNODE.
@@ -40,8 +52,11 @@ GLOBAL FUNCTION fn_executeNextNode {
 //**
 // Returns a new list consisting of items that match the given lambda.
 //
-// PARAM _list: The list to filter over
-// PARAM _lambda: A function that is passed an item in _list and should return TRUE to include the item
+// PARAM _list:
+// The list to filter over
+
+// PARAM _lambda:
+// A function that is passed an item in _list and should return TRUE to include the item
 GLOBAL FUNCTION fn_filter {
 	PARAMETER _list.
 	PARAMETER _lambda.
@@ -58,10 +73,13 @@ GLOBAL FUNCTION fn_filter {
 //**
 // Performs a flip turn to the desired direction
 //
-// PARAM _directionFunc: A function that returns the target direction (it's a function so that it can change during execution)
-// PARAM _bailOnOvershoot If true, we return as soon as overshoot occurs (presumably engines will then take over). Otherwise, we'll fine tune then return.
+// PARAM _directionFunc:
+// A function that returns the target direction (it's a function so that it can change during execution)
 //
-// NOTE: The ship will perform roll adjustment last, but the functino will return before it's done
+// PARAM _bailOnOvershoot:
+// If true, we return as soon as overshoot occurs (presumably engines will then take over). Otherwise, we'll fine tune then return.
+//
+// NOTE: The ship will perform roll adjustment last, but the function will return before it's done
 GLOBAL FUNCTION fn_flipTurnTo {
 	PARAMETER _directionFunc.
 	PARAMETER _bailOnOvershoot.
@@ -128,9 +146,10 @@ GLOBAL FUNCTION fn_flipTurnTo {
 }
 
 //**
-// Returns the gravity magnitude at the given altitude.
+// Returns the gravity magnitude at the given altitude
 //
-// PARAM _altitude: (in meters)
+// PARAM _altitude:
+// The height above sea level (in meters)
 GLOBAL FUNCTION fn_getGravityAtAlt {
 	PARAMETER _altitude.
 
@@ -139,9 +158,10 @@ GLOBAL FUNCTION fn_getGravityAtAlt {
 }
 
 //**
-// Returns the orbital speed at the given altitude.
+// Returns the orbital speed at the given altitude
 //
-// PARAM _altitude: (in meters)
+// PARAM _altitude:
+// The height above sea level (in meters)
 GLOBAL FUNCTION fn_getOrbitalSpeedAt {
 	PARAMETER _altitude.
 
@@ -150,9 +170,10 @@ GLOBAL FUNCTION fn_getOrbitalSpeedAt {
 }
 
 //**
-// A thin wrapper for setting STEERINGMANAGER:MAXSTOPPINGTIME.
+// A thin wrapper for setting STEERINGMANAGER:MAXSTOPPINGTIME
 //
-// PARAM _time: (in seconds)
+// PARAM _time:
+// The new max stopping time value (in seconds)
 //
 // TODO: remember the previous value and allow for resetting
 GLOBAL FUNCTION fn_setStoppingTime {
@@ -161,10 +182,125 @@ GLOBAL FUNCTION fn_setStoppingTime {
 }
 
 //**
-// Waits for the ship to face the given vector (to within the given threshold).
+// Executes a suicide burn followed by a constant speed descent/landing
+// (csd = constant speed descent)
 //
-// PARAM _vectorFunc: A function that returns the target vector (it's a function so that it can change during execution)
-// PARAM _threshold: The number of degrees below which we're "facing"
+// General structure:
+// (1) Wait for the estimated suicide burn
+// (2) Burn to keep the estimated distance to suicide burn ahead of the craft (as per params)
+// (3) When we reach the specified altitude threshold, switch to constant speed descent mode
+// (4) Descend in csd mode until we land
+//
+// NOTE: We bail immediately after landing so that the containing script can perform any necessary shutdown/stabilization procedures.
+//
+// PARAM _targetDistanceToSuicideBurn:
+// The target value for fn_calculateDistanceToSuicideBurn()
+//
+// PARAM _csdThreshold:
+// The altitude (terrain) at which to switch over to the constant speed landing burn
+//
+// PARAM _csdSpeed:
+// The target speed for the constant speed descent phase
+//
+// PARAM _csdPidValues:
+// The PID values to use for constant speed descent (as these will likely be different per craft).
+// Should be a list up to 3 in length of the form LIST(kp, ki, kd).
+// Negative values imply inheriting from the suicide burn values (not currently configurable).
+//
+// PARAM _csdStoppingTime:
+// The stopping time to use during the constant speed descent. Slender srafts might need to use values of 2+.
+// A negative value implies no change.
+GLOBAL FUNCTION fn_suicideBurnLanding {
+	PARAMETER _targetDistanceToSuicideBurn.
+	PARAMETER _csdThreshold.
+	PARAMETER _csdSpeed.
+	PARAMETER _csdPidValues.
+	PARAMETER _csdStoppingTime.
+
+	LOCK STEERING TO SHIP:SRFRETROGRADE.
+
+	PRINT "Waiting for suicide burn.".
+	LOCAL LOCK _distanceToBurn TO fn_calculateDistanceToSuicideBurn().
+	WAIT UNTIL _distanceToBurn < 0.
+
+	LOCAL LOCK _terrainAltitude TO SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT.
+	LOCAL LOCK _verticalVelocity TO SHIP:VELOCITY:SURFACE * SHIP:UP:FOREVECTOR.
+	
+	// tuned empericaly (with the falcon 12)
+	LOCAL _throttlePid IS PIDLOOP(.7, .1, .4, -.05, .05).
+
+	//**
+	// In the suicide burn phase, the setpoint is _targetDistanceToSuicideBurn.
+	// In the csd phase, the setpoint is _csdSpeed.
+	SET _throttlePid:SETPOINT TO _targetDistanceToSuicideBurn.
+
+	LOCAL _throttle IS 1.
+	LOCK THROTTLE TO _throttle.
+	LOCAL _throttleDelta IS 0.
+
+	// constant speed descent trigger; reconfigure landing parameters
+	WHEN (_terrainAltitude <= _csdThreshold) THEN {
+		SET _throttlePid:SETPOINT TO _csdSpeed.
+
+		// apply pid param overeides, if present
+		IF (_csdPidValues:LENGTH > 0) {
+			LOCAL _value IS _csdPidValues[0].
+			IF (_value >= 0) {
+				SET _throttlePid:KP TO _value.
+			}
+		}
+		IF (_csdPidValues:LENGTH > 1) {
+			LOCAL _value IS _csdPidValues[1].
+			IF (_value >= 0) {
+				SET _throttlePid:KI TO _value.
+			}
+		}
+		IF (_csdPidValues:LENGTH > 2) {
+			LOCAL _value IS _csdPidValues[2].
+			IF (_value >= 0) {
+				SET _throttlePid:KD TO _value.
+			}
+		}
+
+		GEAR ON.
+
+		// apply the stopping time override, if applicable
+		IF (_csdStoppingTime >= 0) {
+			fn_setStoppingTime(_csdStoppingTime).
+		}
+	}
+
+	// wait for landing
+	UNTIL (SHIP:STATUS = "LANDED") {
+		if (_terrainAltitude < _csdThreshold) {
+			SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _verticalVelocity).
+		}
+		ELSE {
+			SET _throttleDelta TO _throttlePid:UPDATE(TIME:SECONDS, _distanceToBurn).
+		}
+
+		SET _throttle TO MIN(1, MAX(_throttle + _throttleDelta, 0)).
+
+		// 1m is close enough
+		IF (_terrainAltitude < 1) {
+			BREAK.
+		}
+
+		// nominal delay for iterating the PID
+		WAIT .01.
+
+		// TODO: add a safeguard against upwards vertical velocity
+	}
+}
+
+//**
+// Waits for the ship to face the given vector (to within the given threshold)
+//
+// PARAM _vectorFunc:
+// A function that returns the target vector (it's a function so that it can change during execution)
+//
+// PARAM _threshold:
+// The number of degrees below which we're "facing"
 GLOBAL FUNCTION fn_waitForShipToFace {
 	PARAMETER _vectorFunc.
 	PARAMETER _threshold.
