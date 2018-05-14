@@ -16,6 +16,8 @@ RUNONCEPATH("functions").
 // Kerbin surface gravity: 9.81
 // Hack gravity: .3
 
+LOCAL _hingeSpeed IS .5.
+
 
 // #region arm parts
 
@@ -110,66 +112,70 @@ UNTIL _done {
 	}
 
 	ELSE IF (_missionPhase = "DeployExperiments") {
-		// deploy comms
-		//TOGGLE AG1.
-		//WAIT 5.
-
-		//WAIT UNTIL FALSE.
-
 		PANELS ON.
 		WAIT 5.
 
 		// start forcing the claw to point straight down
+		LOCAL _allowArmClawPointing IS FALSE.
 		LOCAL LOCK _armClawAngle TO
 			180
 			- fn_getHingePartServo(_armAxes[1]):POSITION
 			- fn_getHingePartServo(_armAxes[2]):POSITION.
 		ON _armClawAngle {
-			fn_getHingePartServo(_armAxes[3]):MOVETO(_armClawAngle, 1).
+			// we're checking _allowArmClawPointing here (as opposed to killing the ON)
+			// so that we can toggle _allowArmClawPointing at will
+			IF (_allowArmClawPointing) {
+				fn_getHingePartServo(_armAxes[3]):MOVETO(_armClawAngle, 1).
+			}
 			RETURN TRUE.
 		}
 
 		// deploy seis
 		{
 			// move the arm clear of the deck
-			fn_moveArmTo(LIST(FALSE, -75, FALSE, FALSE)).
+			fn_moveArmTo(LIST(FALSE, -90 + 15, 180 - 15)).
+
+			SET _allowArmClawPointing TO TRUE.
 
 			// hover over seis
-			fn_moveArmTo(LIST(92.46, -19.79, 143.73, -54.22)).
+			fn_moveArmTo(LIST(92.46, -19.79, 143.73)).
 
 			// arm the arm
 			TOGGLE AG2.
 			WAIT 3.
 
 			// grab seis
-			fn_moveArmTo(LIST(92.46, -11.98, 149.14, -43.14)).
+			fn_moveArmTo(LIST(FALSE, -11.39, 149.36)).
 			WAIT 1.
 
 			// release seis winch
 			AG4 ON.
 			WAIT 1.
 
-			// lift it up
-			fn_moveArmTo(LIST(FALSE, -30.38, 139.94, -71.05)).
+			// lift it clear of the deck
+			fn_moveArmTo(LIST(FALSE, -26.97, 135.97)).
 
 			// move to deployment
-			fn_moveArmTo(LIST(20.96, 64.34, 82.27, -35.02)).
+			fn_moveArmTo(LIST(14.66, 64.3, 85.17)).
 			WAIT 1.
 
 			// "release"
 			fn_waitOnAG6().
 
 			// give room for the arm to disarm
-			fn_moveArmTo(LIST(FALSE, 54.67, FALSE, FALSE)).
+			fn_moveArmTo(LIST(FALSE, 58.38, FALSE)).
 
-			// disarm the arm to avoid the graphical glitch
+			// disarm the arm to kill the graphical glitch
 			TOGGLE AG2.
 		}
 
 		// deploy seis cover
 		{
+			// waypoint so we don't hit the solar panels
+			fn_moveArmTo(LIST(FALSE, 6.83, 106.29)).
+
 			// hover over cover
-			fn_moveArmTo(LIST(146.38, 6, 105.66, -66.66)).
+			fn_moveArmTo(LIST(146.38, FALSE, FALSE)).
 
 			// re-arm the arm
 			TOGGLE AG2.
@@ -180,30 +186,78 @@ UNTIL _done {
 			WAIT 1.
 
 			// grab cover
-			fn_moveArmTo(LIST(FALSE, 11.18, 111.07, -57.86)).
+			fn_moveArmTo(LIST(FALSE, 11.15, 111.87)).
 			WAIT 1.
 
-			// lift it up
-			fn_moveArmTo(LIST(FALSE, 13.49, 81.74, -83.56)).
+			// lift it clear of the deck
+			fn_moveArmTo(LIST(FALSE, 1.68, 98.5)).
+
+			// rotate
+			fn_moveArmTo(LIST(14.66, FALSE, FALSE)).
+
+			// move to deployment
+			fn_moveArmTo(LIST(FALSE, 50.69, 92.95)).
+
+			// "release"
+			fn_waitOnAG6().
+
+			// give room for the arm to disarm
+			fn_moveArmTo(LIST(FALSE, 44.93, FALSE)).
+
+			// disarm the arm to kill the graphical glitch
+			TOGGLE AG2.
 		}
 
-		// move it 
+		// deploy hp3
+		{
+			// waypoints so we don't hit the solar panels
+			fn_moveArmTo(LIST(FALSE, 8, 119.23)).
+			fn_moveArmTo(LIST(166.02, FALSE, FALSE)).
 
-		//LOCAL _armLocationPickupSeis IS LIST(94.2, -19.09, 157.76, -39.21).
-		//LOCAL _armLocationDropSeis IS LIST(0, 48.24, 115.5, -14.71).
+			// hover over hp3
+			fn_moveArmTo(LIST(FALSE, 3.46, FALSE)).
 
-		//fn_moveArmTo(_armLocationPickupSeis, 1).
+			// re-arm the arm
+			TOGGLE AG2.
+			WAIT 3.
 
-		//fn_moveArmTo(_armLocationPickupSeis, 1).
+			// grab hp3
+			fn_moveArmTo(LIST(FALSE, 11.11, 124.38)).
+			WAIT 1.
 
-		//fn_moveArmTo(_armLocationDropSeis, 1).
+			// release hp3 winch
+			AG5 ON.
+			WAIT 1.
 
+			// lift it clear of the deck
+			fn_moveArmTo(LIST(FALSE, -5.9, 103.97)).
 
-		LOCAL _armLocationStowed IS LIST(-4, -90, 180, 0).
+			// rotate
+			fn_moveArmTo(LIST(-41.42, FALSE, FALSE)).
+
+			// move to deployment
+			fn_moveArmTo(LIST(FALSE, 66.21, 80.37)).
+			WAIT 1.
+
+			// "release"
+			fn_waitOnAG6().
+
+			// give room for the arm to disarm
+			fn_moveArmTo(LIST(FALSE, 58.38, FALSE)).
+
+			// disarm the arm to kill the graphical glitch
+			TOGGLE AG2.
+		}
+
+		// stow the arm
+		SET _allowArmClawPointing TO FALSE.
+		fn_getHingePartServo(_armAxes[3]):MOVETO(45, _hingeSpeed).
+		fn_moveArmTo(LIST(-31.36, -83.57, 180)).
+
+		// deploy comms
+		AG1.
 
 		SET _done TO TRUE.
-
-		
 	}
 }
 
@@ -222,14 +276,13 @@ LOCAL FUNCTION fn_getHingePartServo {
 
 LOCAL FUNCTION fn_moveArmTo {
 	PARAMETER _armAxesValues.
-	LOCAL _speed IS .5.
 
 	FOR _i IN LIST(0, 1, 2) {
 		LOCAL _armAxis IS _armAxes[_i].
 		LOCAL _servo IS ADDONS:IR:PARTSERVOS(_armAxis)[0].
 		LOCAL _value IS _armAxesValues[_i].
 		IF (_value <> FALSE) {
-			_servo:MOVETO(_armAxesValues[_i], _speed).
+			_servo:MOVETO(_armAxesValues[_i], _hingeSpeed).
 		}
 	}
 
