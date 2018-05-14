@@ -3,13 +3,41 @@ CLEARSCREEN.
 
 RUNONCEPATH("functions").
 
-// #region edl
+// AG1: Toggle comms
+// AG2: Arm/disarm the claw
+// AG3: Release the claw
+// AG4: Release SEIS winch
+// AG5: Release HP3 winch
+// AG6: "I have released the arm manually"
 
-// situation:
-// heading into duna's atmosphere heatshield first (retrograde)
+//WAIT UNTIL FALSE.
 
-// AwaitingAtmo, AwaitingBackJettison, AwaitingLandingBurn
-LOCAL _missionPhase IS "AwaitingAtmo".
+// Duna surface gravity: 2.94
+// Kerbin surface gravity: 9.81
+// Hack gravity: .3
+
+
+// #region arm parts
+
+LOCAL _armAxes IS LIST(
+	//** Shoulder rotation. Positive is counterclockwise.
+	SHIP:PARTSTAGGED("arm-axis-0")[0],
+	//** Shoulder hinge. Positive is away from the ship when the shoulder rotation is 0.
+	SHIP:PARTSTAGGED("arm-axis-1")[0],
+	//** Elbow rotation. Negative is away from the ship when all other axes are 0.
+	SHIP:PARTSTAGGED("arm-axis-2")[0],
+	//** Elbow rotation. Negative is away from the ship when all other axes are 0.
+	SHIP:PARTSTAGGED("arm-axis-3")[0]
+).
+LOCAL _armClaw IS SHIP:PARTSTAGGED("arm-claw").
+
+// #endregion
+
+
+// #region mission loop
+
+// AwaitingAtmo, AwaitingBackJettison, AwaitingLandingBurn, DeployExperiments
+LOCAL _missionPhase IS "DeployExperiments".
 
 LOCAL _done IS FALSE.
 UNTIL _done {
@@ -23,18 +51,19 @@ UNTIL _done {
 		WAIT UNTIL SHIP:ALTITUDE <= SHIP:BODY:ATM:HEIGHT.
 
 		PRINT "Jettisoning cruise stage.".
+		PRINT "Arming parachutes.".
 		STAGE.
 
-		WAIT UNTIL SHIP:ALTITUDE < 20000.
-
+		WAIT UNTIL SHIP:ALTITUDE < 17000.
 		PRINT "Switching to surface mode.".
 		LOCK STEERING TO SHIP:SRFRETROGRADE.
 
 		LOCAL LOCK _altitude TO SHIP:ALTITUDE - SHIP:GEOPOSITION:TERRAINHEIGHT.
+
+		// wait for chutes to deploy
 		WAIT UNTIL _altitude <= 5000.
 
-		PRINT "Deploying parachutes.".
-		STAGE.
+		// wait for chutes to fully deploy
 		WAIT 7.
 
 		PRINT "Jettisoning heat shield.".
@@ -62,8 +91,8 @@ UNTIL _done {
 			20,
 			50,
 			-3,
-			LIST(.3, -1, .4),
-			-1
+			LIST(.3, FALSE, .4),
+			FALSE
 		).
 
 		PRINT "Touchdown.".
@@ -77,88 +106,169 @@ UNTIL _done {
 			_e:SHUTDOWN.
 		}
 
-		SET _done TO TRUE.
+		SET _missionPhase TO "DeployExperiments".
 	}
-}
 
+	ELSE IF (_missionPhase = "DeployExperiments") {
+		// deploy comms
+		//TOGGLE AG1.
+		//WAIT 5.
 
-//** Returns dV of the entire remaining vessel,
-//** so don't call this until the lander is all that's left!
-LOCAL FUNCTION fn_claculateLanderDv {
-	LOCAL _stageDryMass IS 0.
-	LOCAL _stageIspNumerator IS 0.
-	LOCAL _stageIspDenominator IS 0.
-	LOCAL _stageMass IS 0.
-	FOR _part IN SHIP:PARTS {
-		SET _stageDryMass TO _stageDryMass + _part:DRYMASS.
-		// check ISP > 0 because the poodles is included for some reason?
-		IF (_part:HASSUFFIX("ISP") AND _part:ISP > 0) {
-			SET _stageIspNumerator TO _stageIspNumerator + _part:AVAILABLETHRUST.
-			SET _stageIspDenominator TO _stageIspDenominator + (_part:AVAILABLETHRUST / _part:ISP).
+		//WAIT UNTIL FALSE.
+
+		PANELS ON.
+		WAIT 5.
+
+		// start forcing the claw to point straight down
+		LOCAL LOCK _armClawAngle TO
+			180
+			- fn_getHingePartServo(_armAxes[1]):POSITION
+			- fn_getHingePartServo(_armAxes[2]):POSITION.
+		ON _armClawAngle {
+			fn_getHingePartServo(_armAxes[3]):MOVETO(_armClawAngle, 1).
+			RETURN TRUE.
 		}
-		SET _stageMass TO _stageMass + _part:MASS.
-	}
-	// https://forum.kerbalspaceprogram.com/index.php?/topic/156258-burn-time-calculator/
-	LOCAL _stageIsp IS _stageIspNumerator / _stageIspDenominator.
 
-	RETURN _stageIsp * 9.8 * LN(_stageMass / _stageDryMass).
+		// deploy seis
+		{
+			// move the arm clear of the deck
+			fn_moveArmTo(LIST(FALSE, -75, FALSE, FALSE)).
+
+			// hover over seis
+			fn_moveArmTo(LIST(92.46, -19.79, 143.73, -54.22)).
+
+			// arm the arm
+			TOGGLE AG2.
+			WAIT 3.
+
+			// grab seis
+			fn_moveArmTo(LIST(92.46, -11.98, 149.14, -43.14)).
+			WAIT 1.
+
+			// release seis winch
+			AG4 ON.
+			WAIT 1.
+
+			// lift it up
+			fn_moveArmTo(LIST(FALSE, -30.38, 139.94, -71.05)).
+
+			// move to deployment
+			fn_moveArmTo(LIST(20.96, 64.34, 82.27, -35.02)).
+			WAIT 1.
+
+			// "release"
+			fn_waitOnAG6().
+
+			// give room for the arm to disarm
+			fn_moveArmTo(LIST(FALSE, 54.67, FALSE, FALSE)).
+
+			// disarm the arm to avoid the graphical glitch
+			TOGGLE AG2.
+		}
+
+		// deploy seis cover
+		{
+			// hover over cover
+			fn_moveArmTo(LIST(146.38, 6, 105.66, -66.66)).
+
+			// re-arm the arm
+			TOGGLE AG2.
+			WAIT 3.
+
+			// decouple the cover
+			STAGE.
+			WAIT 1.
+
+			// grab cover
+			fn_moveArmTo(LIST(FALSE, 11.18, 111.07, -57.86)).
+			WAIT 1.
+
+			// lift it up
+			fn_moveArmTo(LIST(FALSE, 13.49, 81.74, -83.56)).
+		}
+
+		// move it 
+
+		//LOCAL _armLocationPickupSeis IS LIST(94.2, -19.09, 157.76, -39.21).
+		//LOCAL _armLocationDropSeis IS LIST(0, 48.24, 115.5, -14.71).
+
+		//fn_moveArmTo(_armLocationPickupSeis, 1).
+
+		//fn_moveArmTo(_armLocationPickupSeis, 1).
+
+		//fn_moveArmTo(_armLocationDropSeis, 1).
+
+
+		LOCAL _armLocationStowed IS LIST(-4, -90, 180, 0).
+
+		SET _done TO TRUE.
+
+		
+	}
 }
 
-
-
 // #endregion
 
-WAIT UNTIL FALSE.
 
 
+// #region mission-specific functions
 
-// #region arm parts
+LOCAL FUNCTION fn_getHingePartServo {
+	PARAMETER _part.
 
-LOCAL _armAxes IS LIST(
-	//** Shoulder rotation. Positive is counterclockwise.
-	SHIP:PARTSTAGGED("arm-axis-0")[0],
-	//** Shoulder hinge. Positive is away from the ship when the shoulder rotation is 0.
-	SHIP:PARTSTAGGED("arm-axis-1")[0],
-	//** Elbow rotation. Negative is away from the ship when all other axes are 0.
-	SHIP:PARTSTAGGED("arm-axis-2")[0],
-	//** Elbow rotation. Negative is away from the ship when all other axes are 0.
-	SHIP:PARTSTAGGED("arm-axis-3")[0]
-).
+	LOCAL _servo IS ADDONS:IR:PARTSERVOS(_part)[0].
+	RETURN _servo.
+}
 
-//** Shoulder (deck axis). Positive is counterclockwise.
-LOCAL _armAxis0 IS SHIP:PARTSTAGGED("arm-axis-0")[0].
-//** Shoulder rotation. Positive is away from the ship when the shoulder rotation is 0.
-LOCAL _armAxis1 IS SHIP:PARTSTAGGED("arm-axis-1")[0].
-//** Elbow rotation. Positive is away from the ship when all other axes are 0.
-LOCAL _armAxis2 IS SHIP:PARTSTAGGED("arm-axis-2")[0].
-//** Elbow rotation. Positive is away from the ship when all other axes are 0.
-LOCAL _armAxis3 IS SHIP:PARTSTAGGED("arm-axis-3")[0].
-//** The claaaawwwwwwww
-LOCAL _armClaw IS SHIP:PARTSTAGGED("arm-claw").
-
-// #endregion
-
-// #region arm axis locations
-
-LOCAL _armLocationStowed IS LIST(-26, -90, 180, -55.5).
-LOCAL _armLocationPickupSeis IS LIST(140.17, -33.16, 153.05, -58.47).
-LOCAL _armLocationDropSeis IS LIST(0, 48.24, 115.5, -14.71).
-
-// #endregion
-
-LOCAL FUNCTION _fn_arm_move_to {
+LOCAL FUNCTION fn_moveArmTo {
 	PARAMETER _armAxesValues.
-	PARAMETER _speed.
+	LOCAL _speed IS .5.
 
-	FOR _i IN LIST(0, 1, 2, 3) {
+	FOR _i IN LIST(0, 1, 2) {
 		LOCAL _armAxis IS _armAxes[_i].
 		LOCAL _servo IS ADDONS:IR:PARTSERVOS(_armAxis)[0].
-		_servo:MOVETO(_armAxesValues[_i], _speed).
+		LOCAL _value IS _armAxesValues[_i].
+		IF (_value <> FALSE) {
+			_servo:MOVETO(_armAxesValues[_i], _speed).
+		}
+	}
+
+	LOCAL LOCK _moveComplete TO fn_each(
+		LIST(0, 1, 2),
+		{
+			PARAMETER _i.
+			
+			LOCAL _armAxis IS _armAxes[_i].
+			LOCAL _servo IS ADDONS:IR:PARTSERVOS(_armAxis)[0].
+			LOCAL _value IS _armAxesValues[_i].
+			IF (_value = FALSE) {
+				RETURN TRUE.
+			}
+			ELSE {
+				RETURN fn_isCloseEnough(_servo:POSITION, _armAxesValues[_i]).
+			}
+		}
+	).
+
+	WAIT UNTIL _moveComplete.
+
+	LOCAL FUNCTION fn_isCloseEnough {
+		PARAMETER _a.
+		PARAMETER _b.
+
+		LOCAL _threshold IS .001.
+
+		RETURN ABS(_a - _b) < _threshold.
 	}
 }
 
-//_fn_arm_move_to(_armLocationStowed, 1).
+LOCAL FUNCTION fn_waitOnAG6 {
+	PRINT "Please release the claw manually and then hit AG6.".
+	LOCAL _hit IS FALSE.
+	ON AG6 {
+		SET _hit TO TRUE.
+	}
+	WAIT UNTIL _hit.
+}
 
-_fn_arm_move_to(_armLocationPickupSeis, 1).
-
-//_fn_arm_move_to(_armLocationDropSeis, 1).
+// #endregion

@@ -5,7 +5,8 @@ I have one main goal for this code style: readability. I have found that these c
 
 ## Variables
 - All user-defined variables use **_underscoredCamelCase**.
-- All system variables/suffixes use **ALLCAPS**.
+- All user-defined variable suffixes use **_underscoredCamelCase:ALLCAPS**.
+- All system variables use **ALLCAPS**.
 - Use local definitions wherever possible.
 
 ## Functions

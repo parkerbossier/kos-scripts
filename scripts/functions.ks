@@ -13,6 +13,27 @@ GLOBAL FUNCTION fn_calculateDistanceToSuicideBurn {
 }
 
 //**
+// Returns true iff _lambda(_list[n]) returns TRUE for all items in _list
+//
+// PARAM _list:
+// The list to iterate over
+//
+// PARAM _lambda:
+// Will be passed _item
+GLOBAL FUNCTION fn_each {
+	PARAMETER _list.
+	PARAMETER _lambda.
+
+	FOR _item IN _list {
+		IF (NOT _lambda(_item)) {
+			RETURN FALSE.
+		}
+	}
+
+	RETURN TRUE.
+}
+
+//**
 // Executes the next node on the stack
 GLOBAL FUNCTION fn_executeNextNode {
 	LOCAL _node IS NEXTNODE.
@@ -205,11 +226,11 @@ GLOBAL FUNCTION fn_setStoppingTime {
 // PARAM _csdPidValues:
 // The PID values to use for constant speed descent (as these will likely be different per craft).
 // Should be a list up to 3 in length of the form LIST(kp, ki, kd).
-// Negative values imply inheriting from the suicide burn values (not currently configurable).
+// FALSE values imply inheriting from the suicide burn values (not currently configurable).
 //
 // PARAM _csdStoppingTime:
 // The stopping time to use during the constant speed descent. Slender srafts might need to use values of 2+.
-// A negative value implies no change.
+// A FALSE value implies no change.
 GLOBAL FUNCTION fn_suicideBurnLanding {
 	PARAMETER _targetDistanceToSuicideBurn.
 	PARAMETER _csdThreshold.
@@ -245,19 +266,19 @@ GLOBAL FUNCTION fn_suicideBurnLanding {
 		// apply pid param overeides, if present
 		IF (_csdPidValues:LENGTH > 0) {
 			LOCAL _value IS _csdPidValues[0].
-			IF (_value >= 0) {
+			IF (_value <> FALSE) {
 				SET _throttlePid:KP TO _value.
 			}
 		}
 		IF (_csdPidValues:LENGTH > 1) {
 			LOCAL _value IS _csdPidValues[1].
-			IF (_value >= 0) {
+			IF (_value <> FALSE) {
 				SET _throttlePid:KI TO _value.
 			}
 		}
 		IF (_csdPidValues:LENGTH > 2) {
 			LOCAL _value IS _csdPidValues[2].
-			IF (_value >= 0) {
+			IF (_value <> FALSE) {
 				SET _throttlePid:KD TO _value.
 			}
 		}
