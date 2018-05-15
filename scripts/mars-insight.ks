@@ -10,14 +10,7 @@ RUNONCEPATH("functions").
 // AG5: Release HP3 winch
 // AG6: "I have released the arm manually"
 
-//WAIT UNTIL FALSE.
-
-// Duna surface gravity: 2.94
-// Kerbin surface gravity: 9.81
-// Hack gravity: .3
-
 LOCAL _hingeSpeed IS .5.
-
 
 // #region arm parts
 
@@ -39,7 +32,7 @@ LOCAL _armClaw IS SHIP:PARTSTAGGED("arm-claw").
 // #region mission loop
 
 // AwaitingAtmo, AwaitingBackJettison, AwaitingLandingBurn, DeployExperiments
-LOCAL _missionPhase IS "DeployExperiments".
+LOCAL _missionPhase IS "AwaitingAtmo".
 
 LOCAL _done IS FALSE.
 UNTIL _done {
@@ -130,8 +123,9 @@ UNTIL _done {
 			RETURN TRUE.
 		}
 
-		// deploy seis
 		{
+			PRINT "Deploying SEIS.".
+
 			// move the arm clear of the deck
 			fn_moveArmTo(LIST(FALSE, -90 + 15, 180 - 15)).
 
@@ -169,8 +163,9 @@ UNTIL _done {
 			TOGGLE AG2.
 		}
 
-		// deploy seis cover
 		{
+			PRINT "Deploying SEIS cover.".
+
 			// waypoint so we don't hit the solar panels
 			fn_moveArmTo(LIST(FALSE, 6.83, 106.29)).
 
@@ -208,8 +203,9 @@ UNTIL _done {
 			TOGGLE AG2.
 		}
 
-		// deploy hp3
 		{
+			PRINT "Deploying HP3".
+
 			// waypoints so we don't hit the solar panels
 			fn_moveArmTo(LIST(FALSE, 8, 119.23)).
 			fn_moveArmTo(LIST(166.02, FALSE, FALSE)).
@@ -249,19 +245,21 @@ UNTIL _done {
 			TOGGLE AG2.
 		}
 
-		// stow the arm
+		PRINT "Moving arm clear of the LaRRI."
 		SET _allowArmClawPointing TO FALSE.
 		fn_getHingePartServo(_armAxes[3]):MOVETO(45, _hingeSpeed).
 		fn_moveArmTo(LIST(-31.36, -83.57, 180)).
 
 		// deploy comms
-		AG1.
+		AG1 ON.
 
 		SET _done TO TRUE.
 	}
 }
 
 // #endregion
+
+
 
 
 
@@ -316,7 +314,7 @@ LOCAL FUNCTION fn_moveArmTo {
 }
 
 LOCAL FUNCTION fn_waitOnAG6 {
-	PRINT "Please release the claw manually and then hit AG6.".
+	PRINT "Release the claw manualy. Hit AG6.".
 	LOCAL _hit IS FALSE.
 	ON AG6 {
 		SET _hit TO TRUE.

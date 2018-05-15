@@ -286,7 +286,7 @@ GLOBAL FUNCTION fn_suicideBurnLanding {
 		GEAR ON.
 
 		// apply the stopping time override, if applicable
-		IF (_csdStoppingTime >= 0) {
+		IF (_csdStoppingTime <> FALSE AND _csdStoppingTime >= 0) {
 			fn_setStoppingTime(_csdStoppingTime).
 		}
 	}
