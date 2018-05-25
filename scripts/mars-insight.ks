@@ -9,6 +9,9 @@ RUNONCEPATH("functions").
 // AG4: Release SEIS winch
 // AG5: Release HP3 winch
 // AG6: "I have released the arm manually"
+// AG7: Next camera
+// AG8: Control from upper stage
+// AG9: Deploy MarCO panels and comms
 
 LOCAL _hingeSpeed IS .5.
 
@@ -29,14 +32,54 @@ LOCAL _armClaw IS SHIP:PARTSTAGGED("arm-claw").
 // #endregion
 
 
+
+// TODO:
+// - Move fairing to before upper stage activation
+
+
 // #region mission loop
 
-// AwaitingAtmo, AwaitingBackJettison, AwaitingLandingBurn, DeployExperiments
+// AwaitingEjectionBurn, DeployMarco, AwaitingAtmo, AwaitingBackJettison, AwaitingLandingBurn, DeployExperiments
 LOCAL _missionPhase IS "AwaitingAtmo".
 
 LOCAL _done IS FALSE.
 UNTIL _done {
-	IF (_missionPhase = "AwaitingAtmo") {
+	IF (_missionPhase = "AwaitingEjectionBurn") {
+		PRINT "Hit AG6 to execute next node.".
+		fn_waitOnAG6().
+		fn_executeNextNode().
+		RCS ON.
+		SAS ON.
+
+		// for stability
+		WAIT 5.
+
+		SET _missionPhase TO "DeployMarco".
+	}
+
+	ELSE IF (_missionPhase = "DeployMarco") {
+		LOCAL _marcoACpu IS PROCESSOR("marco-a-cpu").
+		LOCAL _marcoAPusher IS SHIP:PARTSTAGGED("marco-a-pusher")[0].
+		LOCAL _marcoBCpu IS PROCESSOR("marco-b-cpu").
+		LOCAL _marcoBPusher IS SHIP:PARTSTAGGED("marco-b-pusher")[0].
+
+		PRINT "Ejecting MarCO.".
+		_marcoACpu:CONNECTION:SENDMESSAGE("ejection start").
+		_marcoBCpu:CONNECTION:SENDMESSAGE("ejection start").
+		WAIT 1.
+		STAGE.
+		WAIT 1.
+		ADDONS:IR:PARTSERVOS(_marcoAPusher)[0]:MOVETO(.3, 1).
+		ADDONS:IR:PARTSERVOS(_marcoBPusher)[0]:MOVETO(.3, 1).
+		WAIT UNTIL fn_servoPartIsCloseEnough(_marcoAPusher, .3).
+
+		SET _missionPhase TO "AwaitingAtmo".
+	}
+
+	ELSE IF (_missionPhase = "AwaitingAtmo") {
+		PRINT "Hit AG6 when inside Duna's SOI.".
+		fn_waitOnAG6().
+
 		SAS OFF.
 		RCS ON.
 		LOCK STEERING TO SHIP:RETROGRADE.
@@ -154,6 +197,7 @@ UNTIL _done {
 			WAIT 1.
 
 			// "release"
+			PRINT "Release the claw manualy and hit AG6.".
 			fn_waitOnAG6().
 
 			// give room for the arm to disarm
@@ -194,6 +238,7 @@ UNTIL _done {
 			fn_moveArmTo(LIST(FALSE, 50.69, 92.95)).
 
 			// "release"
+			PRINT "Release the claw manualy and hit AG6.".
 			fn_waitOnAG6().
 
 			// give room for the arm to disarm
@@ -236,6 +281,7 @@ UNTIL _done {
 			WAIT 1.
 
 			// "release"
+			PRINT "Release the claw manualy and hit AG6.".
 			fn_waitOnAG6().
 
 			// give room for the arm to disarm
@@ -245,7 +291,7 @@ UNTIL _done {
 			TOGGLE AG2.
 		}
 
-		PRINT "Moving arm clear of the LaRRI."
+		PRINT "Moving arm clear of the LaRRI.".
 		SET _allowArmClawPointing TO FALSE.
 		fn_getHingePartServo(_armAxes[3]):MOVETO(45, _hingeSpeed).
 		fn_moveArmTo(LIST(-31.36, -83.57, 180)).
@@ -290,31 +336,30 @@ LOCAL FUNCTION fn_moveArmTo {
 			PARAMETER _i.
 			
 			LOCAL _armAxis IS _armAxes[_i].
-			LOCAL _servo IS ADDONS:IR:PARTSERVOS(_armAxis)[0].
 			LOCAL _value IS _armAxesValues[_i].
 			IF (_value = FALSE) {
 				RETURN TRUE.
 			}
 			ELSE {
-				RETURN fn_isCloseEnough(_servo:POSITION, _armAxesValues[_i]).
+				RETURN fn_servoPartIsCloseEnough(_armAxis, _value).
 			}
 		}
 	).
 
 	WAIT UNTIL _moveComplete.
+}
 
-	LOCAL FUNCTION fn_isCloseEnough {
-		PARAMETER _a.
-		PARAMETER _b.
+LOCAL FUNCTION fn_servoPartIsCloseEnough {
+	PARAMETER _part.
+	PARAMETER _target.
 
-		LOCAL _threshold IS .001.
+	LOCAL _servo IS ADDONS:IR:PARTSERVOS(_part)[0].
+	LOCAL _threshold IS .001.
 
-		RETURN ABS(_a - _b) < _threshold.
-	}
+	RETURN ABS(_servo:POSITION - _target) < _threshold.
 }
 
 LOCAL FUNCTION fn_waitOnAG6 {
-	PRINT "Release the claw manualy. Hit AG6.".
 	LOCAL _hit IS FALSE.
 	ON AG6 {
 		SET _hit TO TRUE.
