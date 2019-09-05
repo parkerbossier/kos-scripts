@@ -9,6 +9,10 @@ RUNONCEPATH("functions").
 // AG4: Release SEIS winch
 // AG5: Release HP3 winch
 // AG6: "I have released the arm manually"
+// AG7: Next camera
+// AG8: Control from upper stage
+
+WAIT UNTIL FALSE.
 
 LOCAL _hingeSpeed IS .5.
 
@@ -245,7 +249,7 @@ UNTIL _done {
 			TOGGLE AG2.
 		}
 
-		PRINT "Moving arm clear of the LaRRI."
+		PRINT "Moving arm clear of the LaRRI.".
 		SET _allowArmClawPointing TO FALSE.
 		fn_getHingePartServo(_armAxes[3]):MOVETO(45, _hingeSpeed).
 		fn_moveArmTo(LIST(-31.36, -83.57, 180)).
