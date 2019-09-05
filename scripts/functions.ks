@@ -38,23 +38,29 @@ GLOBAL FUNCTION fn_each {
 GLOBAL FUNCTION fn_executeNextNode {
 	LOCAL _node IS NEXTNODE.
 
-	PRINT "Warping to maneuver node.".
-	LOCAL LOCK _burnTime TO _node:DELTAV:MAG / (SHIP:AVAILABLETHRUST / SHIP:MASS).
-	WARPTO(TIME:SECONDS + ETA:APOAPSIS - _burnTime/2 - 10).
-
 	PRINT "Orienting for burn.".
 	RCS ON.
+	SAS OFF.
 	LOCK STEERING TO _node:BURNVECTOR.
-	fn_waitForShipToFace({ RETURN _node:BURNVECTOR. }, 5).
+	fn_waitForShipToFace({ RETURN _node:BURNVECTOR. }, 1).
+	WAIT 5.
 
-	WAIT UNTIL ETA:APOAPSIS < _burnTime/2.
+	PRINT "Warping to maneuver node.".
+	LOCAL LOCK _burnTime TO _node:DELTAV:MAG / (SHIP:AVAILABLETHRUST / SHIP:MASS).
+	WARPTO(TIME:SECONDS + _node:ETA - _burnTime/2 - 10).
+	WAIT .01.
+	WAIT UNTIL SHIP:UNPACKED.
+
+	PRINT "Fine tuning orientation.".
+	WAIT UNTIL _node:ETA < _burnTime/2.
 
 	PRINT "Throttle up.".
 	LOCK THROTTLE TO 1.
-	WAIT UNTIL _burnTime < 1.
+	WAIT UNTIL _burnTime < .5.
+	UNLOCK _burnTime.
 
 	PRINT "Throttling down for fine tuning.".
-	LOCK THROTTLE TO 1/5.
+	LOCK THROTTLE TO .1.
 	
 	// wait for us to bottom out the dV remaining
 	LOCAL _prevDvRemaining IS _node:DELTAV:MAG.
@@ -62,12 +68,13 @@ GLOBAL FUNCTION fn_executeNextNode {
 		SET _prevDvRemaining TO _node:DELTAV:MAG.
 		WAIT .001.
 	}
-	LOCK THROTTLE TO 0.
+	SET THROTTLE TO 0.
+	UNLOCK THROTTLE.
+	UNLOCK STEERING.
 	RCS OFF.
+	REMOVE _node.
 
-	// TODO: REMOVE _node, but kOS throws an error :/
-	//WAIT 1.
-	//REMOVE _node.
+	PRINT "Burn complete".
 }
 
 //**
